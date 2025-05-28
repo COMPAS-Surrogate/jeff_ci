@@ -1,0 +1,100 @@
+[build-system]
+requires = [
+    "setuptools>=64",
+    "setuptools-scm>=8.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]  # list of folders that contain the packages (["."] by default)
+include = ["cosmic_integration*"]  # package names should match these glob patterns (["*"] by default)
+exclude = ["cosmic_integration.tests*"]  # exclude packages matching these glob patterns (empty by default)
+namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
+
+
+[project]
+name = "compas_surrogate.cosmic_integration"
+dynamic = ["version"] # scm versioning (using tags)
+requires-python = ">=3.8"
+description = "Run cosmic integration on COMPAS output"
+readme = "README.md"
+authors = [
+    { name = "Jeff Riley", email = "jeff.riley@monash.edu " },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.8",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "argparse",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=4.1.0",
+    "coverage[toml]",
+    "pre-commit",
+    "flake8>=5.0.4",
+    "black==22.10.0",
+    "jupyter-book",
+]
+
+[tool.setuptools_scm]
+version_file = "src/cosmic_integration/_version.py"
+
+[tool.semantic_release]
+version_variable = "src/cosmic_integration/_version.py:__version__"
+version_source = "commit"
+commit_version_number = true
+commit_subject = "chore(release): {version}"
+commit_message = "chore(release): {version}"
+tag_format = "v{version}"
+no_local_version = true
+
+
+[project.urls]  # Optional
+"Homepage" = "https://github.com/COMPAS-Surrogate/cosmic_integration"
+"Bug Reports" = "https://github.com/COMPAS-Surrogate/cosmic_integration/issues"
+"Source" = "https://github.com/COMPAS-Surrogate/cosmic_integration/"
+
+
+
+[tool.black]
+line-length = 79
+exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | train
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 79
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# CLI script
+[project.scripts]
+run_cosmic_integration = "cosmic_integration.ratesSampler:main"
+
+[tool.setuptools.package-data]
+cosmic_integration = ["SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5"]
