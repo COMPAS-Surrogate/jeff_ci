@@ -12,6 +12,7 @@ import csv
 import argparse
 import time
 
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 # defaults
 
@@ -32,8 +33,8 @@ NUM_REDSHIFT_BINS      = int(MAX_DETECTION_REDSHIFT / REDSHIFT_STEP)
 COMPAS_HDF5_FILE_PATH  = '.'
 COMPAS_HDF5_FILE_NAME  = 'COMPAS_Output.h5'
 
-SNR_NOISE_FILE_PATH    = '.'
-SNR_NOISE_FILE_NAME    = 'SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5'
+SNR_NOISE_FILE_PATH    = HERE
+SNR_NOISE_FILE_NAME    = '/SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5'
 SNR_SENSITIVITY        = 'O1'
 SNR_THRESHOLD          = 8.0
 
