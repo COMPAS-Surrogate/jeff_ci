@@ -95,6 +95,7 @@ testpaths = ["tests"]
 # CLI script
 [project.scripts]
 run_cosmic_integration = "cosmic_integration.ratesSampler:main"
+plot_ci_rates = "cosmic_integration.plot_rate:main"
 
 [tool.setuptools.package-data]
 cosmic_integration = ["SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5"]
