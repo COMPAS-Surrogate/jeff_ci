@@ -45,6 +45,7 @@ dev = [
     "flake8>=5.0.4",
     "black==22.10.0",
     "jupyter-book",
+    "compas-python-utils"
 ]
 
 [tool.setuptools_scm]

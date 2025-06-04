@@ -1127,7 +1127,7 @@ def main():
     fsfrD  = SFR_D_VALUES if args.fsfrD  is None else [args.fsfrD]
 
     # seed random number generator
-    np.random.seed()
+    np.random.seed(0) # AVI SET TO 0 FOR REPRODUCIBILITY
 
     # make variable with chirpmass bins
     chirpMassBins, chirpMassBinWidths = MakeChirpMassBins(minChirpMass = MIN_CHIRPMASS, maxChirpMass = MAX_CHIRPMASS, binWidthPercent = McBIN_WIDTH_PERCENT)
