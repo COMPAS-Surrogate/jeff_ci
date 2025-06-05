@@ -102,6 +102,7 @@ addopts = "--capture=tee-sys"
 [project.scripts]
 run_cosmic_integration = "cosmic_integration.ratesSampler:main"
 plot_ci_rates = "cosmic_integration.plot_rate:main"
+run_1d_lnl_check = "cosmic_integration.cli_tools.run_1d_lnl_check:run_1d_lnl_check"
 
 [tool.setuptools.package-data]
 cosmic_integration = ["SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5"]
