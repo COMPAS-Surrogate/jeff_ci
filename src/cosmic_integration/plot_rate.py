@@ -2,27 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from .ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
 import sys
+from typing import List
 
 
-def read_output(fname: str):
-    """
-    Read the output file and return the parameters, shape, and data.
-    # first 4 floats are the parameters, next two floats are the shape (nrows, ncolumns), rest is the data
-    """
-    data = np.genfromtxt(fname, delimiter=',')
-
-    if data.ndim == 1:
-        # If the data is 1D, reshape it to a 2D array with one row
-        data = data.reshape(1, -1)
-
-    params = data[0, :4]
-    shape = tuple(int(x) for x in data[0, 4:6])
-    output_data = data[0, 6:].reshape(shape)
-
-    return params, shape, output_data
-
-
-def plot_output(params, shape, output_data, fname: str):
+def plot_matrix(matrix:np.ndarray, fname: str= "", params:List[float]=None):
     """
     Plot the output data as a heatmap.
     """
@@ -32,8 +15,10 @@ def plot_output(params, shape, output_data, fname: str):
     mc_bin_edge = np.array(mc_bin_edge)  # Convert to numpy array for consistency
     # ditch
 
+    shape = matrix.shape
+
     plt.figure(figsize=(6, 5))
-    output_data_trimmed = output_data[:111, :]  # Shape (111, 15)
+    output_data_trimmed = matrix[:111, :]  # Shape (111, 15)
     plt.pcolormesh(
         ZbinEdges, mc_bin_edge, output_data_trimmed, shading='flat',
         cmap='inferno',
@@ -54,7 +39,11 @@ def plot_output(params, shape, output_data, fname: str):
         va="bottom",
         color="white",
     )
-    plt.savefig(fname)
+    if fname:
+        plt.tight_layout()
+        plt.savefig(fname)
+    else:
+        plt.show()
 
 
 def main():
@@ -64,7 +53,7 @@ def main():
     print(f"Shape: {shape}")
     print(f"Output Data:\n{output_data}")
 
-    plot_output(params, shape, output_data, fname.replace('.csv', '.png'))
+    plot_matrix(params, shape, output_data, fname.replace('.csv', '.png'))
 
 
 if __name__ == "__main__":

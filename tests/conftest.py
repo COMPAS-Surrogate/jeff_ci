@@ -50,6 +50,38 @@ def mock_sys_argv():
     return _mock_argv
 
 
+@pytest.fixture
+def observation_file(test_compas_h5, outdir, mock_sys_argv):
+    """
+    Fixture to ensure the rate file is generated before running tests.
+    """
+
+    rate_file_path = f"{outdir}/observation"
+    if not os.path.exists(rate_file_path + '.csv'):
+        from cosmic_integration import ratesSampler
+
+        param_alpha = np.mean(ratesSampler.ALPHA_VALUES)
+        param_sigma = np.mean(ratesSampler.SIGMA_VALUES)
+        param_sfra = np.mean(ratesSampler.SFR_A_VALUES)
+        param_sfrd = np.mean(ratesSampler.SFR_D_VALUES)
+
+        command = (
+            "python_ratesSampler.py "
+            f"-i {os.path.basename(test_compas_h5)} "
+            f"-p {os.path.dirname(test_compas_h5)} "
+            f"-a {param_alpha} "
+            f"-s {param_sigma} "
+            f"-A {param_sfra} "
+            f"-D {param_sfrd} "
+            "-n 1 "
+            f"{rate_file_path}"
+        )
+
+        with mock_sys_argv(command.split()):
+            ratesSampler.main()
+    return rate_file_path + '.csv'
+
+
 def _generate_fake_compas_file(filename: str, n_systems=5000, frac_bbh: float = 0.7, frac_bns: float = 0.2,
                                frac_bhns: float = 0.1, ):
     m1 = np.random.uniform(3, 150, size=n_systems)
