@@ -1,11 +1,12 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from .ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
+from .utils import read_output
 import sys
-from typing import List
+from typing import List, Optional
 
 
-def plot_matrix(matrix:np.ndarray, fname: str= "", params:List[float]=None):
+def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]=None):
     """
     Plot the output data as a heatmap.
     """
@@ -21,8 +22,7 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params:List[float]=None):
     output_data_trimmed = matrix[:111, :]  # Shape (111, 15)
     plt.pcolormesh(
         ZbinEdges, mc_bin_edge, output_data_trimmed, shading='flat',
-        cmap='inferno',
-        norm="linear",
+        cmap='inferno'
     )
     plt.colorbar(label='Output Value')
     plt.title(f'Output Data Heatmap\nParameters: {params}\nShape: {shape}')
@@ -53,7 +53,7 @@ def main():
     print(f"Shape: {shape}")
     print(f"Output Data:\n{output_data}")
 
-    plot_matrix(params, shape, output_data, fname.replace('.csv', '.png'))
+    plot_matrix(output_data, fname.replace('.csv', '.png'), params)
 
 
 if __name__ == "__main__":

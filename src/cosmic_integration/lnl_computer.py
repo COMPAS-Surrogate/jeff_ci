@@ -1,8 +1,9 @@
 import csv
 import os.path
 from dataclasses import dataclass
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Optional
 
+import math
 import numpy as np
 
 from .observation import Observation
@@ -10,7 +11,7 @@ from .ratesSampler import BinnedCosmicIntegrator
 
 
 def ln_poisson_likelihood(
-        n_obs: float, n_model: float, ignore_factorial=True
+        n_obs: float, n_model: float, ignore_factorial: bool = True
 ) -> float:
     """
     Computes LnL(N_obs | N_model) = N_obs * ln(N_model) - N_model - ln(N_obs!)
@@ -26,13 +27,14 @@ def ln_poisson_likelihood(
     if n_model <= 0:
         return -np.inf
     lnl = n_obs * np.log(n_model) - n_model
+
     if ignore_factorial is False:
-        lnl += -np.log(np.math.factorial(n_obs))
+        lnl += -np.log(math.factorial(int(n_obs)))
     return lnl
 
 
 def ln_mcz_grid_likelihood_weights(
-        obs_weights: np.ndarray, model_prob_grid: np.ndarray
+    obs_weights: np.ndarray, model_prob_grid: np.ndarray
 ) -> float:
     """
     Computes LnL(mc, z | model)
@@ -75,8 +77,8 @@ def core_ln_likelihood(
         model_matrix: np.ndarray,
         duration: float,
         obs_matrix: np.ndarray,
-        obs_weights: np.ndarray = None
-) -> Union[float, Tuple[float, float, float, float]]:
+        obs_weights: Optional[np.ndarray] = None
+) -> float:
     """
     Compute the log likelihood of the model given the observation
 
