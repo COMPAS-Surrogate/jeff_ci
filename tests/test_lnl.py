@@ -4,37 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 
-from cosmic_integration import ratesSampler
 from cosmic_integration.lnl_computer import LnLComputer, Observation
-
-
-@pytest.fixture
-def observation_file(test_compas_h5, outdir, mock_sys_argv):
-    """
-    Fixture to ensure the rate file is generated before running tests.
-    """
-    param_alpha = np.mean(ratesSampler.ALPHA_VALUES)
-    param_sigma = np.mean(ratesSampler.SIGMA_VALUES)
-    param_sfra = np.mean(ratesSampler.SFR_A_VALUES)
-    param_sfrd = np.mean(ratesSampler.SFR_D_VALUES)
-
-    rate_file_path = f"{outdir}/observation"
-    if not os.path.exists(rate_file_path + '.csv'):
-        command = (
-            "python_ratesSampler.py "
-            f"-i {os.path.basename(test_compas_h5)} "
-            f"-p {os.path.dirname(test_compas_h5)} "
-            f"-a {param_alpha} "
-            f"-s {param_sigma} "
-            f"-A {param_sfra} "
-            f"-D {param_sfrd} "
-            "-n 1 "
-            f"{rate_file_path}"
-        )
-
-        with mock_sys_argv(command.split()):
-            ratesSampler.main()
-    return rate_file_path + '.csv'
 
 
 def test_lnl(test_compas_h5, observation_file, outdir):
