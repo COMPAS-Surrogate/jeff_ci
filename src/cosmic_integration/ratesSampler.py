@@ -11,6 +11,7 @@ from astropy.cosmology import WMAP9 as cosmology
 import csv
 import argparse
 import time
+from typing import List
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -49,6 +50,14 @@ MAXIMUM_LOG_Z          = 0.0
 Z_SCALE                = 0.0
 SKEW                   = 0.0 
 LOG_Z_STEP             = 0.01
+
+# Neijssel+19 Eq.7-9
+NEIJSSEL_Z0 = 0.035
+NEIJSSEL_ALPHA = -0.23
+NEIJSSEL_SIGMA = 0.39
+NEIJSSEL_SFR_A = 0.01
+NEIJSSEL_SFR_D = 4.7
+
 
 SAMPLE_COUNT = 10
 
@@ -628,12 +637,7 @@ class COMPAS:
 
 class CosmicIntegration:
 
-    # Neijssel+19 Eq.7-9
-    NEIJSSEL_Z0    = 0.035
-    NEIJSSEL_ALPHA = -0.23 
-    NEIJSSEL_SIGMA = 0.39 
-    NEIJSSEL_SFR_A = 0.01
-    NEIJSSEL_SFR_D = 4.7 
+
 
 
     def __init__(self, 
@@ -998,6 +1002,62 @@ class CosmicIntegration:
         return detectionRate, chirpMasses
 
 
+    @classmethod
+    def from_compas_h5(cls, inputPath:str, inputName:str):
+
+        SE = SelectionEffects(p_SNRfilePath=SNR_NOISE_FILE_PATH,
+                              p_SNRfileName=SNR_NOISE_FILE_NAME,
+                              p_SNRsensitivity='O3')
+
+        compas = COMPAS(p_COMPASfilePath=inputPath, p_COMPASfileName=inputName)
+        compas.SetDCOmasks(p_DCOtypes='ALL', p_WithinHubbleTime=True, p_Pessimistic=True, p_NoRLOFafterCEE=True)
+        compas.CalculatePopulationValues()
+        return cls(
+            p_COMPAS=compas,
+            p_SE=SE,
+            p_MaxRedshift=MAX_FORMATION_REDSHIFT,
+            p_MaxRedshiftDetection=MAX_DETECTION_REDSHIFT,
+            p_RedshiftStep=REDSHIFT_STEP
+        )
+
+
+class BinnedCosmicIntegrator(CosmicIntegration):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.defaultChirpMassBins, self.defualtChirpMassBinWidths = MakeChirpMassBins(minChirpMass=MIN_CHIRPMASS, maxChirpMass=MAX_CHIRPMASS, binWidthPercent=McBIN_WIDTH_PERCENT)
+
+    def FindBinnedDetectionRate(self,
+                          # use default values for the other detection rate parameters
+                          p_Alpha                = NEIJSSEL_ALPHA,
+                          p_Sigma                = NEIJSSEL_SIGMA,
+                          p_SFRa                 = NEIJSSEL_SFR_A,
+                          p_SFRd                 = NEIJSSEL_SFR_D,
+                          p_ChirpMassBins        = None,
+                          ):
+        if p_ChirpMassBins is None:
+            p_ChirpMassBins = self.defaultChirpMassBins
+
+        numChirpMassBins = len(p_ChirpMassBins) + 1
+        detectionRate, chirpMasses = self.FindDetectionRate(p_BinaryFraction=0.7, p_Alpha=p_Alpha, p_Sigma=p_Sigma,
+                                                            p_SFRa=p_SFRa, p_SFRd=p_SFRd)
+
+        numRows = detectionRate.shape[1]
+        numColumns = detectionRate.shape[0]
+
+        # bin the detection rates
+        binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
+        for Mc in range(numColumns):
+            c = np.random.randint(0, numColumns)
+            McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
+            for zBin in range(numRows):
+                binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
+
+        return binnedDetectionRate
+
+
+
+
 # create variable width chirpmass bins
 # returns:
 #   list of doubles: bin right edges
@@ -1037,11 +1097,10 @@ def ChirpMassBin(chirpMass, chirpMassBins):
 
 # sample from COMPAS data
 
-def Sample(CSVwriter, p_CI, p_ChirpMassBins, p_ChirpMassBinWidths, p_NumSamples, p_AlphaVector = ALPHA_VALUES, p_SigmaVector = SIGMA_VALUES, p_SFRaVector = SFR_A_VALUES, p_SFRdVector = SFR_D_VALUES):
+def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector = ALPHA_VALUES, p_SigmaVector = SIGMA_VALUES, p_SFRaVector = SFR_A_VALUES, p_SFRdVector = SFR_D_VALUES):
     
     global verbose
 
-    numChirpMassBins = len(p_ChirpMassBins) + 1
 
     # create data for each sigma required
     for _, alpha in enumerate(p_AlphaVector):
@@ -1053,33 +1112,25 @@ def Sample(CSVwriter, p_CI, p_ChirpMassBins, p_ChirpMassBinWidths, p_NumSamples,
 
                         print('\nSampling sample ', sample, ', alpha =', alpha, ', sigma =', sigma, ', SFRa =', SFRa, ', SFRd =', SFRd)
 
-                        if verbose: 
+                        if verbose:
                             print('Get detection rate matrix')
                             t = time.process_time()
-                        detectionRate, chirpMasses = p_CI.FindDetectionRate(p_BinaryFraction = 0.7, p_Alpha = alpha, p_Sigma = sigma, p_SFRa = SFRa, p_SFRd = SFRd)
+
+                        binnedDetectionRate = p_CI.FindBinnedDetectionRate(alpha, sigma, SFRa, SFRd)
+                        numChirpMassBins, numZBins = binnedDetectionRate.shape
+
                         if verbose:
                             print('Have detection rate matrix after', time.process_time() - t, 'seconds')
 
-                        numRows    = detectionRate.shape[1]
-                        numColumns = detectionRate.shape[0]
-
-                        # bin the detection rates
-                        binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype = float)           
-                        for Mc in range(numColumns):
-                            c     = np.random.randint(0, numColumns)
-                            McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
-                            for zBin in range(numRows):
-                                binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
-
                         # write binned detection rates to output file
-                        row = [alpha, sigma, SFRa, SFRd, numChirpMassBins, numRows]
+                        row = [alpha, sigma, SFRa, SFRd, numChirpMassBins, numZBins]
                         for xBin in range(numChirpMassBins):
                             for yBin in range(NUM_REDSHIFT_BINS):
                                 row.append(str(binnedDetectionRate[xBin][yBin]))
 
                         CSVwriter.writerow(row)
 
-                        if verbose: print('\nDetection rates written to output file: #McBins =', numChirpMassBins, ', #zBins =', numRows)
+                        if verbose: print('\nDetection rates written to output file: #McBins =', numChirpMassBins, ', #zBins =', numZBins)
 
 
 # convert string to bool (mainly for arg parser)
@@ -1129,25 +1180,14 @@ def main():
     # seed random number generator
     np.random.seed(0) # AVI SET TO 0 FOR REPRODUCIBILITY
 
-    # make variable with chirpmass bins
-    chirpMassBins, chirpMassBinWidths = MakeChirpMassBins(minChirpMass = MIN_CHIRPMASS, maxChirpMass = MAX_CHIRPMASS, binWidthPercent = McBIN_WIDTH_PERCENT)
-
-
     # initialise Cosmic Integrator
     if verbose:
         print('Start CI initialisation')
         t = time.process_time()
 
-    SE = SelectionEffects(p_SNRfilePath    = SNR_NOISE_FILE_PATH, 
-                          p_SNRfileName    = SNR_NOISE_FILE_NAME, 
-                          p_SNRsensitivity = 'O3')
+    CI = BinnedCosmicIntegrator.from_compas_h5(inputPath = args.inputPath, inputName = args.inputName)
 
-    compas = COMPAS(p_COMPASfilePath = args.inputPath, p_COMPASfileName = args.inputName)
-    compas.SetDCOmasks(p_DCOtypes = 'ALL', p_WithinHubbleTime = True, p_Pessimistic = True, p_NoRLOFafterCEE = True)
-    compas.CalculatePopulationValues()
 
-    CI = CosmicIntegration(compas, SE, p_MaxRedshift = MAX_FORMATION_REDSHIFT, p_MaxRedshiftDetection = MAX_DETECTION_REDSHIFT, p_RedshiftStep = REDSHIFT_STEP)
-    
     if verbose:
         print('CI initialisation done after', time.process_time() - t, 'seconds')
 
@@ -1157,7 +1197,7 @@ def main():
         writer = csv.writer(csvFile)
 
         # get and write samples
-        Sample(writer, CI, chirpMassBins, chirpMassBinWidths, args.numSamples, fAlpha, fSigma, fsfrA, fsfrD)
+        Sample(writer, CI, args.numSamples, fAlpha, fSigma, fsfrA, fsfrD)
 
 
 if __name__ == "__main__":
