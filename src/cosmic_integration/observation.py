@@ -2,15 +2,16 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from typing import Optional, Dict
 from .utils import read_output
 
 
 @dataclass
 class Observation:
     duration: float
-    rate_matrix: np.ndarray[float]
-    weights: np.ndarray[float] = None
-    params: np.ndarray[float] = None
+    rate_matrix: np.ndarray
+    weights: Optional[np.ndarray] = None
+    params: Optional[np.ndarray] = None
 
     @classmethod
     def from_jeff(self, fname: str, idx: int = 0) -> 'Observation':
@@ -23,7 +24,13 @@ class Observation:
         )
 
     @property
-    def param_dict(self):
+    def param_dict(self) -> Dict[str, float]:
+        """
+        Returns a dictionary of parameters with keys 'alpha', 'sigma', 'sfr_a', and 'sfr_d'.
+        Raises ValueError if parameters are not set or insufficient length.
+        """
+        if self.params is None or len(self.params) < 4:
+            raise ValueError("Parameters are not set or insufficient length. Expected at least 4 parameters.")
         return {
             'alpha': self.params[0],
             'sigma': self.params[1],

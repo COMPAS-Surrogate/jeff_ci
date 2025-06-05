@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from cosmic_integration.lnl_computer import LnLComputer, Observation
+from cosmic_integration import ratesSampler 
 
 
 def test_lnl(test_compas_h5, observation_file, outdir):

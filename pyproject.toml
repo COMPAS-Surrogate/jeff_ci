@@ -34,7 +34,8 @@ dependencies = [
     "scipy",
     "astropy",
     "argparse",
-    "h5py"
+    "h5py",
+    "matplotlib"
 ]
 
 [project.optional-dependencies]

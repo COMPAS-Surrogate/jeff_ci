@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pyright: ignore-file
 import sys
 import os
 import numpy as np
