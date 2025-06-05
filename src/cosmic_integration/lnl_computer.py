@@ -116,7 +116,7 @@ class LnLComputer:
     observation: Observation
     model: BinnedCosmicIntegrator
 
-    def __call__(self, alpha: float, sigma: float, sfr_a: float, sfr_d: float, cache_fn: str = '') -> float:
+    def __call__(self, alpha: float, sigma: float, sfr_a: float, sfr_d: float, cache_fn: Optional[str] = '') -> float:
         """
         Compute the log likelihood of the model given the observation.
 

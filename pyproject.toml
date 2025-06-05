@@ -35,8 +35,11 @@ dependencies = [
     "astropy",
     "argparse",
     "h5py",
-    "matplotlib"
+    "matplotlib",
+    "click",
+    "tqdm"
 ]
+
 
 [project.optional-dependencies]
 dev = [
@@ -93,6 +96,7 @@ line_length = 79
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--capture=tee-sys"
 
 # CLI script
 [project.scripts]
