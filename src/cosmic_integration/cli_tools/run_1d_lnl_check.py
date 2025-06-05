@@ -25,7 +25,7 @@ from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUE
 @click.command()
 @click.argument("observation_fpath", type=click.Path(exists=True))
 @click.argument("compas_h5_fpath", type=click.Path(exists=True))
-@click.argument("n", type=int)
+@click.argument("n", type=int, default=10,)
 @click.option("--outdir", type=click.Path(exists=False), default=".", help="Output directory for plots")
 @click.option("--true_params", type=str, default=None, help="True param dict, eg alpha:0 sigma:0.3 sfr_a:1.0 sfr_d:2.0")
 def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params):
