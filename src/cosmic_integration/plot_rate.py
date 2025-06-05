@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from cosmic_integration.ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
+from .ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
 import sys
 
 
