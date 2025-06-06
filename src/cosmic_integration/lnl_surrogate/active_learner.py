@@ -48,16 +48,21 @@ class ActiveLearner:
         trainable_function: Callable[..., float],
         bounds: np.ndarray,
         outdir: str,
+        # --- NEW ARGS ---
+        initial_data_x: np.ndarray | None = None,
+        initial_data_y: np.ndarray | None = None,
         initial_points: int = 5,
         random_seed: int = 42,
     ):
         """
         Args:
-            foo: Callable[[float, …], float], a Python function taking D floats → scalar float.
-            bounds: np.ndarray of shape [2, D]. Row 0 = lower bounds, row 1 = upper bounds.
-            outdir: str, directory in which to save diagnostic plots & GP‐checkpoints.
-            initial_points: int, how many seed points to acquire before starting active learning.
-            random_seed: int, for reproducible Box sampling of the initial points.
+            trainable_function: Python function f(x1, x2, …, xD) → float
+            bounds: np.ndarray shape [2, D], row0 = lower, row1 = upper
+            outdir: directory to save plots & checkpoints
+            initial_data_x: (optional) precomputed NxD array of input points
+            initial_data_y: (optional) precomputed Nx1 array of observations f(X)
+            initial_points: how many random seeds to draw if no initial_data is given
+            random_seed: seed for reproducible Box sampling
         """
         self.trainable_function = trainable_function
         self.bounds = np.asarray(bounds, dtype=np.float64)
@@ -66,64 +71,70 @@ class ActiveLearner:
         ), "bounds must be a [2, D] array."
         self.dim = self.bounds.shape[1]
 
-        # Create output folder if it does not exist
         self.outdir = outdir
         os.makedirs(self.outdir, exist_ok=True)
 
-        # ─── 1) Wrap your Python `foo` as an observer ─────────────
-
-        # Define a “NumPy” version that takes a 2D array [N, D] and returns [N, 1]
+        # ─── 1) Wrap trainable_function as a NumPy→TensorFlow observer ─────────────
         def _f(x: np.ndarray) -> np.ndarray:
             """
-            x: shape [N, D], dtype float64 or float32 (we’ll cast internally).
-            Returns: shape [N, 1], dtype float64
+            x: shape [N, D], dtype float64 or float32
+            returns: shape [N, 1], dtype float64
             """
-            # Ensure x is float64
             x = np.asarray(x, dtype=np.float64)
-            # Apply `foo` row-by-row
-            output = np.array([self.trainable_function(*row) for row in x], dtype=np.float64).reshape(-1, 1)
-            return output
+            out = np.array(
+                [self.trainable_function(*row) for row in x],
+                dtype=np.float64,
+            ).reshape(-1, 1)
+            return out
 
-        # mk_observer takes your NumPy-based f and returns a TF-friendly Observer
+        # mk_observer wraps _f so we can call self.observer(tf.Tensor) directly
         self.observer = mk_observer(_f)
 
-        # ─── 2) Build the Trieste search space: a D‐dimensional Box ─────────────────────
+        # ─── 2) Build the Trieste search space ────────────────────────────────────
         self.search_space = Box(self.bounds[0], self.bounds[1])
 
-        # ─── 3) Sample `initial_points` uniformly from Box, then call `observer` ────────
-        tf.random.set_seed(random_seed)
-        # Box.sample returns a Tensor of shape [initial_points, D], dtype float32 by default.
-        X0 = self.search_space.sample(initial_points)
-        self.current_dataset = self.observer(X0)
+        # ─── 3) Handle “optional initial data” vs. “random sample” ───────────────
+        if (initial_data_x is not None and initial_data_y is not None):
+            # 3a) User supplied (X0, Y0). We assume they are NumPy arrays.
+            X0_np = np.asarray(initial_data_x, dtype=np.float64)
+            Y0_np = np.asarray(initial_data_y, dtype=np.float64).reshape(-1, 1)
 
-        # ─── 4) Build an initial GPflow GPR on the seed data ───────────────────────────
+            assert X0_np.ndim == 2 and X0_np.shape[1] == self.dim, (
+                "If you pass initial_data_x, it must be shape [N, D]."
+            )
+            assert Y0_np.ndim == 2 and Y0_np.shape[0] == X0_np.shape[0] and Y0_np.shape[1] == 1, (
+                "initial_data_y must be shape [N, 1]."
+            )
+
+            # Convert to tf.Tensor and build a Dataset
+            X0 = tf.convert_to_tensor(X0_np, dtype=tf.float64)
+            Y0 = tf.convert_to_tensor(Y0_np, dtype=tf.float64)
+            self.current_dataset = Dataset(X0, Y0)
+            N_init = X0_np.shape[0]
+        else:
+            # 3b) No user‐provided data → draw `initial_points` random seeds from the Box
+            tf.random.set_seed(random_seed)
+            X0 = self.search_space.sample(initial_points)       # dtype=float32 by default
+            X0 = tf.cast(X0, tf.float64)                        # cast to float64
+            Y0 = self.observer(X0)                              # shape [initial_points, 1]
+
+            self.current_dataset = Dataset(X0, Y0)
+            N_init = initial_points
+
+        # ─── 4) Build an initial GPflow GPR on those seed data ───────────────────
         kernel = gpflow.kernels.Matern52()
-        gpr = gpflow.models.GPR(
-            data=(self.current_dataset.query_points, self.current_dataset.observations),
-            kernel=kernel,
-            mean_function=None,
-        )
+        # (In your own code you have a `build_model(...)` helper—keep using that if you prefer.)
+        def build_model(data: Dataset) -> gpflow.models.GPR:
+            noise = 1e-5
+            variance0 = tf.math.reduce_variance(data.observations)
+            k = gpflow.kernels.Matern52(variance=variance0, lengthscales=[0.2]*self.dim)
+            prior_scale = tf.constant(1.0, dtype=tf.float64)
+            k.variance.prior = tfp.distributions.LogNormal(tf.constant(-2.0, dtype=tf.float64), prior_scale)
+            k.lengthscales.prior = tfp.distributions.LogNormal(tf.math.log(k.lengthscales), prior_scale)
+            gpr0 = gpflow.models.GPR(data=data.astuple(), kernel=k, noise_variance=noise)
+            return gpr0
 
-        def build_model(data):
-            variance = tf.math.reduce_variance(data.observations)
-            kernel = gpflow.kernels.Matern52(variance=variance, lengthscales=[0.2, 0.2])
-            prior_scale = tf.cast(1.0, dtype=tf.float64)
-            kernel.variance.prior = tfp.distributions.LogNormal(
-                tf.cast(-2.0, dtype=tf.float64), prior_scale
-            )
-            kernel.lengthscales.prior = tfp.distributions.LogNormal(
-                tf.math.log(kernel.lengthscales), prior_scale
-            )
-            gpr = gpflow.models.GPR(data.astuple(), kernel, noise_variance=1e-5)
-            # gpflow.set_trainable(gpr.likelihood, False)
-
-            # return GaussianProcessRegression(gpr, num_kernel_samples=100)
-            return gpr
-        #
         gpr = build_model(self.current_dataset)
-
-
-        # Optimize hyperparameters once on the seed data
         opt = gpflow.optimizers.Scipy()
         opt.minimize(
             gpr.training_loss,
@@ -131,22 +142,20 @@ class ActiveLearner:
             options={"maxiter": 1000},
         )
 
-        # Wrap it for Trieste
+        # Wrap in Trieste model (formerly: GaussianProcessRegressionModel, now your alias)
         self.current_model = GaussianProcessRegression(gpr, num_kernel_samples=100)
 
-        # ─── 5) Create the Trieste BayesianOptimizer ───────────────────────────────────
+        # ─── 5) Create the BayesianOptimizer ───────────────────────────────────
         self.bo = BayesianOptimizer(self.observer, self.search_space)
 
-        # ─── 6) Track best‐so‐far values (for plotting diagnostics) ───────────────────
-        y0_np = self.current_dataset.observations.flatten()
-        self.current_best = float(np.min(y0_np))  # assume minimization
-        # Fill history_best with as many copies as there are initial_points,
-        # so the x‐axis “step index” starts from 0 through (initial_points−1).
-        self.history_best = [self.current_best] * initial_points
+        # ─── 6) Initialize best‐so‐far history using N_init seeds ────────────────
+        y0_np = self.current_dataset.observations.numpy().flatten()
+        self.current_best = float(np.min(y0_np))
+        self.history_best = [self.current_best] * N_init
 
-        # A small flag so we only skip “fit_initial_model” on the very first call
         self._did_initial_fit = False
-        self.result = None  # Will hold the final optimization result
+        self.result = None
+        
 
     def run(self, total_steps: int, steps_per_round: int):
         """
@@ -309,11 +318,6 @@ class ActiveLearner:
             input_signature=[tf.TensorSpec(shape=[None, 2], dtype=tf.float64)],
         )
         tf.saved_model.save(module, model_dir)
-
-
-
-
-
 
         # ─▶  Later you can reload it via:
         #        # load the results
