@@ -37,7 +37,10 @@ dependencies = [
     "h5py",
     "matplotlib",
     "click",
-    "tqdm"
+    "tqdm",
+    "trieste",
+    "bilby",
+    "corner"
 ]
 
 
