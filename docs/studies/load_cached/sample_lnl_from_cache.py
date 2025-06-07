@@ -42,8 +42,8 @@ def main(observation_file: str, compas_h5: str, cache_fn: str, outdir: str = "."
 
 
     plt.hist(lnl, bins=50, alpha=0.7, label='Log Likelihoods')
-    # plt.axvline(best_lnl, color='red', linestyle='--', label='Best Log Likelihood')
-    # plt.axvline(lnl_at_true, color='green', linestyle='--', label='Log Likelihood at True Params')
+    plt.axvline(best_lnl, color='red', linestyle='--', label='Best Log Likelihood')
+    plt.axvline(lnl_at_true, color='green', linestyle='--', label='Log Likelihood at True Params')
     plt.xlabel('Log Likelihood')
     plt.ylabel('Frequency')
     plt.savefig(f"{outdir}/lnl_histogram.png")
