@@ -38,7 +38,9 @@ dependencies = [
     "matplotlib",
     "click",
     "tqdm",
-    "trieste"
+    "trieste",
+    "bilby",
+    "corner"
 ]
 
 

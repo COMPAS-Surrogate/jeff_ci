@@ -1,13 +1,15 @@
 import csv
+import math
 import os.path
 from dataclasses import dataclass
-from typing import Tuple, Union, List, Optional
+from typing import List, Optional
+from tqdm.auto import tqdm
 
-import math
 import numpy as np
 
 from .observation import Observation
 from .ratesSampler import BinnedCosmicIntegrator
+from .utils import row_to_matrix_params_lnl
 
 
 def ln_poisson_likelihood(
@@ -34,7 +36,7 @@ def ln_poisson_likelihood(
 
 
 def ln_mcz_grid_likelihood_weights(
-    obs_weights: np.ndarray, model_prob_grid: np.ndarray
+        obs_weights: np.ndarray, model_prob_grid: np.ndarray
 ) -> float:
     """
     Computes LnL(mc, z | model)
@@ -115,8 +117,9 @@ class LnLComputer:
 
     observation: Observation
     model: BinnedCosmicIntegrator
+    cache_fn: Optional[str] = None
 
-    def __call__(self, alpha: float, sigma: float, sfr_a: float, sfr_d: float, cache_fn: Optional[str] = '') -> float:
+    def __call__(self, alpha: float, sigma: float, sfr_a: float, sfr_d: float) -> float:
         """
         Compute the log likelihood of the model given the observation.
 
@@ -144,8 +147,9 @@ class LnLComputer:
         )
 
         # If cache_fn, store the model params, matrix-shape, matrix, and lnl
-        if cache_fn:
-            _cache_results(cache_fn, [alpha, sigma, sfr_a, sfr_d, *model_matrix.shape, *model_matrix.ravel().tolist(), lnl]),
+        if self.cache_fn:
+            _cache_results(self.cache_fn,
+                           [alpha, sigma, sfr_a, sfr_d, *model_matrix.shape, *model_matrix.ravel().tolist(), lnl]),
 
         return lnl
 
@@ -154,12 +158,39 @@ class LnLComputer:
             cls,
             observation_file: str,
             compas_h5: str,
+            cache_fn: Optional[str] = None
     ):
         return cls(
             observation=Observation.from_jeff(observation_file),
-            model=BinnedCosmicIntegrator.from_compas_h5(inputPath=os.path.dirname(compas_h5),
-                                                        inputName=os.path.basename(compas_h5))
+            model=BinnedCosmicIntegrator.from_compas_h5(
+                inputPath=os.path.dirname(compas_h5),
+                inputName=os.path.basename(compas_h5)
+            ),
+            cache_fn=cache_fn
         )
+
+    def compute_via_cache(self, cache_fn: str) -> List[float]:
+        """
+        Compute the log likelihood using cached binned detection rates.
+
+        :param cache_fn: Path to the cache file.
+        :return: List of log likelihood values.
+        """
+        if not os.path.exists(cache_fn):
+            raise FileNotFoundError(f"Cache file {cache_fn} does not exist.")
+
+        lnls = []
+        data = np.genfromtxt(cache_fn, delimiter=',')
+        for row in tqdm(data):
+            matrix, param, _ = row_to_matrix_params_lnl(row)
+            lnl = core_ln_likelihood(
+                model_matrix=matrix,
+                obs_matrix=self.observation.rate_matrix,
+                duration=self.observation.duration,
+                obs_weights=self.observation.weights
+            )
+            lnls.append(np.array([lnl, *param]).flatten())
+        return np.array(lnls)
 
 
 def _cache_results(cache_fn: str, data: List[float]):

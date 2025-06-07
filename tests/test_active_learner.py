@@ -108,17 +108,18 @@ def test_active_learner_runs(outdir):
     assert os.path.exists(analytic_plot_path), "Analytic banana plot was not saved."
 
     # 3) Instantiate ActiveLearner with the 2D banana function
-    n_init = 50
+    n_init = 100
     learner = ActiveLearner(
         trainable_function=lambda x, y: banana(x, y),
         bounds=bounds,
         outdir=str(outdir),
         initial_points=n_init,
         random_seed=0,
+        true_minima= np.array([1.0, 1.0]),  # Known minimum of the banana function
     )
 
     # 4) Run with a small total and per-round budget
-    total_steps = 30
+    total_steps = 10
     steps_per_round = 10
     final_dataset, final_model = learner.run(total_steps=total_steps, steps_per_round=steps_per_round)
 
@@ -132,3 +133,13 @@ def test_active_learner_runs(outdir):
     comparison_plot_path = os.path.join(outdir, "banana_comparison.png")
     plot_banana_and_surrogate(bounds=bounds, out_path=comparison_plot_path, model=final_model)
     assert os.path.exists(comparison_plot_path), "Comparison plot was not saved."
+
+
+    # assert that we can load the model
+    loaded_model = ActiveLearner.load_model(f"{outdir}/models")
+    # assert that the loaded model can predict
+    tf_XY = tf.constant([[0.0, 0.0]], dtype=tf.float64)
+    mean_tf = loaded_model.predict_f(tf_XY)[0]
+    mean_orig = final_model.model.predict_f(tf_XY)[0]
+    assert np.allclose(mean_tf.numpy(), mean_orig.numpy()), "Loaded model predictions do not match original model."
+

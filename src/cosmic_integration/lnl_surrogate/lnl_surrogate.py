@@ -1,31 +1,124 @@
 import numpy as np
+from bilby.core.likelihood import Likelihood
+from bilby.core.prior import PriorDict, Uniform, DeltaFunction
+from tqdm.auto import tqdm
 
-from ..lnl_computer import LnLComputer  
-from .active_learner import ActiveLearner  
+from typing import List
+from .active_learner import ActiveLearner
+from ..lnl_computer import LnLComputer
+from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
 
-class LnLSurrogate:
-    def __init__(self):
-        self.lnl_computer = LnLComputer()
-        self.reference_lnl = self._compute_reference_lnl()
-        self.active_learner = ActiveLearner(self.negative_lnl)
+BOUNDS = np.array([
+    [np.min(ALPHA_VALUES), np.min(SIGMA_VALUES), np.min(SFR_A_VALUES), np.min(SFR_D_VALUES)],
+    [np.max(ALPHA_VALUES), np.max(SIGMA_VALUES), np.max(SFR_A_VALUES), np.max(SFR_D_VALUES)]
+])
 
-    def _compute_reference_lnl(self, num_samples=10):
-        """
-        Compute the reference log-likelihood by sampling multiple times and taking the mean.
-        """
-        samples = [self.lnl_computer.sample() for _ in range(num_samples)]
-        return np.mean(samples)
 
-    def negative_lnl(self, x):
-        """
-        Compute the negative log-likelihood relative to the reference point.
-        """
-        lnl = self.lnl_computer.compute(x)
-        return -(lnl - self.reference_lnl)
 
-    def predict(self, x):
+PARAMETERS = ["alpha", "sigma", "sfr_a", "sfr_d"]  # Parameters to train on
+
+class LnLSurrogate(Likelihood):
+    def __init__(
+            self,
+            gp_model,
+            reference_lnl: float  = 0  # Reference log likelihood for normalization
+    ):
+        super().__init__()
+        self.gp_model = gp_model
+        self.reference_lnl = reference_lnl
+
+    @classmethod
+    def train(
+            cls,
+            observation_file: str = None,  # Path to the observation file
+            compas_h5: str = None,  # Path to the COMPAS h5 file
+            outdir: str = ".",  # Output directory for the learner
+            initial_points: int = 50,  # Number of initial points for active learning
+            total_steps: int = 300,  # Total number of points to sample
+            steps_per_round: int = 30,  # Number of steps per round
+            parameters:List[str] = PARAMETERS,  # Parameters to train on
+            truth: np.ndarray | None = None,  # True minima for helping with visualization
+    ) -> "LnLSurrogate":
         """
-        Predict using the ActiveLearner and adjust the result relative to the reference log-likelihood.
+        Train the LnLSurrogate model.
         """
-        gp_y = self.active_learner.predict(x)
-        return self.reference_lnl - gp_y
+
+        # 1. create the LnlComputer instance
+        lnl_computer = LnLComputer.load(
+            observation_file=observation_file,
+            compas_h5=compas_h5,
+            cache_fn=f"{outdir}/lnl_cache.csv"  # Cache file for storing results
+        )
+
+        # 2. sample initial points
+        inital_samples = sample_points(initial_points, parameters)
+        initial_lnls = np.array([lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
+        reference_lnl = max(initial_lnls)  # Reference log likelihood for normalization
+        print(f"Reference log likelihood: {reference_lnl:,.2f}")
+        # 3. trainable function for minimizing the log likelihood
+
+        def neg_lnl_computer(*params):
+            """
+            Compute the negative log likelihood for the given parameters.
+            This is used to train the surrogate model.
+            """
+            params = np.array(params).flatten()
+            neg_lnl = -(lnl_computer(*params) - reference_lnl)
+
+            # threshold
+            if neg_lnl > 10:
+                print(f"Negative log likelihood is negative: {neg_lnl:.2f} for params {params}")
+                neg_lnl = 10
+
+            return neg_lnl
+
+
+
+        _, model = ActiveLearner(
+            trainable_function=neg_lnl_computer,
+            bounds=BOUNDS,  # Assuming bounds are defined in LnlComputer
+            outdir=f"{outdir}/gp_model",  # Output directory for the learner
+            initial_data_x=inital_samples,  # Initial samples
+            initial_data_y=initial_lnls,  # Initial log likelihoods
+            true_minima=truth,  # True minima for visualization
+        ).run(total_steps=total_steps, steps_per_round=steps_per_round)
+
+        return cls(model, reference_lnl)
+
+    def log_likelihood(self) -> float:
+        params = np.array([list(self.parameters.values())])
+        neg_lnl, _ = self.gp_model.predict(params)
+        neg_lnl = neg_lnl.numpy().flatten()[0]
+        # need to add the reference_lnl to the negative log likelihood
+        lnl = neg_lnl + self.reference_lnl
+        return lnl
+
+
+
+def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray|None=None) -> PriorDict:
+    """
+    Get the prior distribution for the parameters.
+    """
+    prior = {}
+
+    for i, param_name in enumerate(PARAMETERS):
+
+        if param_name in parameters:
+            prior[param_name] = Uniform(*BOUNDS.T[i])
+        else:
+            if truth is not None:
+                prior[param_name] = DeltaFunction(truth[i])
+            else:
+                prior[param_name] = Uniform(np.mean(BOUNDS.T[i]))
+
+    return PriorDict(prior)
+
+
+def sample_points(n: int = 10, parameters:List[str]=PARAMETERS, truth:np.ndarray|None=None) -> np.ndarray:
+    """
+    Sample points from the prior distribution.
+
+    """
+    samples = get_prior(parameters=parameters, truth=truth).sample(n)
+    samples = np.array([s for s in samples.values()]).T
+    return samples

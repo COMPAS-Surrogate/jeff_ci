@@ -1,23 +1,31 @@
 # active_learner.py
 
 import os
+import shutil
+from typing import Callable
+import glob
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
+import gpflow
 import numpy as np
 import tensorflow as tf
-import gpflow
-import matplotlib.pyplot as plt
-from typing import Callable
-
 import tensorflow_probability as tfp
 from tqdm import tqdm
-
-from trieste.space import Box
+from trieste.acquisition import (
+    ExpectedImprovement,
+    PredictiveVariance,
+)
+from trieste.acquisition.rule import EfficientGlobalOptimization
+from trieste.bayesian_optimizer import BayesianOptimizer, OptimizationResult
 from trieste.data import Dataset
 from trieste.models.gpflow import GaussianProcessRegression
-from trieste.acquisition.rule import EfficientGlobalOptimization
-from trieste.bayesian_optimizer import BayesianOptimizer
-from trieste.objectives import mk_observer
-
 from trieste.models.utils import get_module_with_variables
+from trieste.objectives import mk_observer
+from trieste.space import Box
+
+from .plotting import plot_regret, plot_scatter
+
 
 class ActiveLearner:
     """
@@ -44,15 +52,16 @@ class ActiveLearner:
     """
 
     def __init__(
-        self,
-        trainable_function: Callable[..., float],
-        bounds: np.ndarray,
-        outdir: str,
-        # --- NEW ARGS ---
-        initial_data_x: np.ndarray | None = None,
-        initial_data_y: np.ndarray | None = None,
-        initial_points: int = 5,
-        random_seed: int = 42,
+            self,
+            trainable_function: Callable[..., float],
+            bounds: np.ndarray,
+            outdir: str,
+            initial_data_x: np.ndarray | None = None,
+            initial_data_y: np.ndarray | None = None,
+            initial_points: int = 5,
+            random_seed: int = 42,
+            ## for testing
+            true_minima: np.ndarray | None = None,
     ):
         """
         Args:
@@ -67,7 +76,7 @@ class ActiveLearner:
         self.trainable_function = trainable_function
         self.bounds = np.asarray(bounds, dtype=np.float64)
         assert (
-            self.bounds.ndim == 2 and self.bounds.shape[0] == 2
+                self.bounds.ndim == 2 and self.bounds.shape[0] == 2
         ), "bounds must be a [2, D] array."
         self.dim = self.bounds.shape[1]
 
@@ -114,20 +123,18 @@ class ActiveLearner:
         else:
             # 3b) No user‐provided data → draw `initial_points` random seeds from the Box
             tf.random.set_seed(random_seed)
-            X0 = self.search_space.sample(initial_points)       # dtype=float32 by default
-            X0 = tf.cast(X0, tf.float64)                        # cast to float64
-            Y0 = self.observer(X0)                              # shape [initial_points, 1]
-
-            self.current_dataset = Dataset(X0, Y0)
+            X0 = self.search_space.sample(initial_points)  # dtype=float32 by default
+            X0 = tf.cast(X0, tf.float64)  # cast to float64
+            self.current_dataset = self.observer(X0)
             N_init = initial_points
 
+
         # ─── 4) Build an initial GPflow GPR on those seed data ───────────────────
-        kernel = gpflow.kernels.Matern52()
-        # (In your own code you have a `build_model(...)` helper—keep using that if you prefer.)
+
         def build_model(data: Dataset) -> gpflow.models.GPR:
             noise = 1e-5
             variance0 = tf.math.reduce_variance(data.observations)
-            k = gpflow.kernels.Matern52(variance=variance0, lengthscales=[0.2]*self.dim)
+            k = gpflow.kernels.Matern52(variance=variance0, lengthscales=[0.2] * self.dim)
             prior_scale = tf.constant(1.0, dtype=tf.float64)
             k.variance.prior = tfp.distributions.LogNormal(tf.constant(-2.0, dtype=tf.float64), prior_scale)
             k.lengthscales.prior = tfp.distributions.LogNormal(tf.math.log(k.lengthscales), prior_scale)
@@ -142,20 +149,43 @@ class ActiveLearner:
             options={"maxiter": 1000},
         )
 
-        # Wrap in Trieste model (formerly: GaussianProcessRegressionModel, now your alias)
+        # Wrap in Trieste model
         self.current_model = GaussianProcessRegression(gpr, num_kernel_samples=100)
 
         # ─── 5) Create the BayesianOptimizer ───────────────────────────────────
         self.bo = BayesianOptimizer(self.observer, self.search_space)
+        self.exploration_rule = EfficientGlobalOptimization(PredictiveVariance(jitter=1e-6))
+        self.exploitation_rule = EfficientGlobalOptimization(ExpectedImprovement(search_space=self.search_space))
+        self.result = None
 
         # ─── 6) Initialize best‐so‐far history using N_init seeds ────────────────
-        y0_np = self.current_dataset.observations.numpy().flatten()
+        y0_np = self.current_dataset.observations
         self.current_best = float(np.min(y0_np))
         self.history_best = [self.current_best] * N_init
 
-        self._did_initial_fit = False
-        self.result = None
-        
+        self.true_minima = true_minima  # Store true minima if provided
+
+
+    def _update_model_and_dataset(self, result: OptimizationResult):
+        self.current_dataset = result.try_get_final_dataset()
+        self.current_model = result.try_get_final_model()
+
+        # Update best‐so‐far history
+        y_new = float(self.current_dataset.observations.numpy()[-1, 0])
+        self.current_best = min(self.current_best, y_new)
+        self.history_best.append(self.current_best)
+
+    def _one_bo_step(self, i: int, explore: bool = True):
+        rule = self.exploration_rule if explore else self.exploitation_rule
+        self.result = self.bo.optimize(
+            num_steps=1,
+            datasets=self.current_dataset,
+            models=self.current_model,
+            acquisition_rule=rule,
+            fit_model=True,
+            fit_initial_model=i == 0,  # Only fit the initial model once
+        )
+        self._update_model_and_dataset(self.result)
 
     def run(self, total_steps: int, steps_per_round: int):
         """
@@ -174,13 +204,6 @@ class ActiveLearner:
         """
         assert total_steps > 0 and steps_per_round > 0
         num_rounds = total_steps // steps_per_round
-        remainder = total_steps % steps_per_round
-        if remainder:
-            print(
-                f"Warning: total_steps={total_steps} not divisible by "
-                f"steps_per_round={steps_per_round}. "
-                f"Remainder {remainder} will be run as a final “explore‐only” mini‐round."
-            )
 
         pbar = tqdm(total=total_steps, unit="step")
         step_counter = 0
@@ -192,137 +215,93 @@ class ActiveLearner:
 
             # ── Explore Phase: PredictiveVariance ───────────────────────────────────────
             for _ in range(explore_steps):
-                pbar.set_description("Exploring")
-                result = self.bo.optimize(
-                    num_steps=1,
-                    datasets= self.current_dataset,
-                    models=self.current_model,
-                    acquisition_rule=EfficientGlobalOptimization(),  # PredictiveVariance
-                    fit_model=True,
-                    fit_initial_model=not self._did_initial_fit,
-                )
-                # After the first call, we should set this False so that subsequent calls only re‐fit:
-                self._did_initial_fit = True
-
-                # Extract the updated dataset & model
-                self.current_dataset = result.try_get_final_dataset()
-                self.current_model = result.try_get_final_model()
-
-                # Update best‐so‐far history
-                y_new = float(self.current_dataset.observations.numpy()[-1, 0])
-                self.current_best = min(self.current_best, y_new)
-                self.history_best.append(self.current_best)
-
+                pbar.set_description(f"Exploring (current best: {self.current_best:.4f})")
+                self._one_bo_step(step_counter, explore=True)
                 step_counter += 1
                 pbar.update(1)
 
             # ── Exploit Phase: ExpectedImprovement ──────────────────────────────────────
             for _ in range(exploit_steps):
-                pbar.set_description("Exploiting")
-                self.result = self.bo.optimize(
-                    num_steps=1,
-                    datasets= self.current_dataset,
-                    models= self.current_model,
-                    acquisition_rule=EfficientGlobalOptimization(),  # ExpectedImprovement
-                    fit_model=True,
-                    fit_initial_model=False,
-                )
-                # Extract updated dataset & model
-                self.current_dataset = self.result.try_get_final_dataset()
-                self.current_model = self.result.try_get_final_model()
-
-                # Update best‐so‐far history
-                y_new = float(self.current_dataset.observations.numpy()[-1, 0])
-                self.current_best = min(self.current_best, y_new)
-                self.history_best.append(self.current_best)
-
+                pbar.set_description(f"Exploiting (current best: {self.current_best:.4f})")
+                self._one_bo_step(step_counter, explore=False)
+                self._update_model_and_dataset(self.result)
                 step_counter += 1
                 pbar.update(1)
 
             # ── End of Round: Save diagnostics + checkpoint ─────────────────────────
             pbar.set_description("Plotting/Checkpointing")
             self._plot_diagnostics(round_idx=r)
-            self._save_model(round_idx=r)
-
-        # ── If there is a remainder, treat it as “explore‐only” steps ───────────────
-        if remainder:
-            for _ in range(remainder):
-                pbar.set_description("Exploring (final)")
-                self.result = self.bo.optimize(
-                    num_steps=1,
-                    datasets= self.current_dataset,
-                    models=self.current_model,
-                    acquisition_rule=EfficientGlobalOptimization(),
-                    fit_model=True,
-                    fit_initial_model=False,
-                )
-                self.current_dataset = self.result.try_get_final_dataset()
-                self.current_model = self.result.try_get_final_model()
-
-                y_new = float(self.current_dataset.observations.numpy()[-1, 0])
-                self.current_best = min(self.current_best, y_new)
-                self.history_best.append(self.current_best)
-
-                step_counter += 1
-                pbar.update(1)
-
-            pbar.set_description("Plotting/Checkpointing (final)")
-            self._plot_diagnostics(round_idx=num_rounds)
-            self._save_model(round_idx=num_rounds)
+            self.save_model(round_idx=r)
 
         pbar.close()
         return self.current_dataset, self.current_model
 
     def _plot_diagnostics(self, round_idx: int):
-        """
-        Save a plot of “step index vs. best‐so‐far f(x)” up to this point.
+        plot_dir = os.path.join(self.outdir, "plots")
+        os.makedirs(plot_dir, exist_ok=True)
 
-        File → "{outdir}/diagnostic_round_{round_idx}.png"
-        """
-        fig, ax = plt.subplots(figsize=(6, 4))
-        x_axis = np.arange(len(self.history_best))
-        y_axis = np.array(self.history_best)
+        plot_regret(
+            self.current_dataset.observations.numpy(),
+            self.history_best,
+            title=f"Best Observed Value vs. Step (Round {round_idx})",
+            fname=os.path.join(plot_dir, f"regret_round_{round_idx}.png"),
+        )
 
-        ax.plot(x_axis, y_axis, marker="o", linestyle="-")
-        ax.set_title(f"Round {round_idx} — Best Observed Value vs. Step")
-        ax.set_xlabel("Step Index")
-        ax.set_ylabel("Best Observed f(x)")
-        ax.grid(True)
+        # Also save a scatter plot of the current dataset
+        X_np = self.current_dataset.query_points.numpy()
+        Y_np = self.current_dataset.observations.numpy()
+        plot_scatter(
+            X_np,
+            bounds=self.bounds,
+            labels=[f"p{i}" for i in range(self.dim)],
+            title=f"Round {round_idx}",
+            fname=os.path.join(plot_dir, f"scatter_round_{round_idx}.png"),
+            true_minima=self.true_minima,
+        )
 
-        out_file = os.path.join(self.outdir, f"diagnostic_round_{round_idx}.png")
-        fig.tight_layout()
-        fig.savefig(out_file)
-        plt.close(fig)
-
-    def _save_model(self, round_idx: int):
+    def save_model(self, round_idx: int = None):
         """
         Save the underlying GPflow GPR model under "{outdir}/model_round_{round_idx}/".
 
         The folder will be removed & overwritten if it already exists.
         """
-        model_dir = os.path.join(self.outdir, f"model_round_{round_idx}")
+
+        model_dir = os.path.join(self.outdir, f"models/round_{round_idx}")
+
         if os.path.isdir(model_dir):
-            import shutil
-
             shutil.rmtree(model_dir)
+        os.makedirs(model_dir)
 
-        os.makedirs(model_dir, exist_ok=True)
-        # `self.current_model` is a Trieste GaussianProcessRegressionModel
-        gpr_model = self.current_model.model  # this is the gpflow.models.GPR
-        # self.result.save(model_dir, )
-
-
+        gpr_model = self.current_model.model
         module = get_module_with_variables(self.result.try_get_final_model())
-        module.predict = tf.function(
+
+        module.predict_f = tf.function(
             gpr_model.predict_f,
-            input_signature=[tf.TensorSpec(shape=[None, 2], dtype=tf.float64)],
+            input_signature=[tf.TensorSpec(shape=[None, self.dim], dtype=tf.float64)],
         )
         tf.saved_model.save(module, model_dir)
 
-        # ─▶  Later you can reload it via:
-        #        # load the results
-        # saved_result = trieste.bayesian_optimizer.OptimizationResult.from_path(  # type: ignore
-        #     "results_path"
-        # )
-        # saved_result.try_get_final_model().model
 
+
+    @staticmethod
+    def load_model(model_dir: str, round_idx: int = None) -> tf.Module:
+        """
+        Checks for all saved models in the directory and loads the latest one
+
+        If `round_idx` is specified, it will load the model from that specific round.
+        """
+
+        models = glob.glob(os.path.join(model_dir, "round_*"))
+        if len(models) == 0:
+            raise FileNotFoundError(f"No models found in {model_dir}.")
+
+        if round_idx is not None:
+            model_path = os.path.join(model_dir, f"round_{round_idx}")
+            if model_path not in models:
+                raise FileNotFoundError(f"Model for round {round_idx} does not exist in {model_dir}. Available models: {models}")
+        else:
+            model_path = max(models, key=os.path.getmtime)
+
+        # Load the saved model
+        module = tf.saved_model.load(model_path)
+        return module

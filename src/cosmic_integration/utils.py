@@ -1,4 +1,5 @@
 import numpy as np
+from isort.core import process
 
 
 def read_output(fname: str, idx: int = 0) -> tuple:
@@ -12,14 +13,21 @@ def read_output(fname: str, idx: int = 0) -> tuple:
         # If the data is 1D, reshape it to a 2D array with one row
         data = data.reshape(1, -1)
 
-    params = data[idx, :4]
-    shape = tuple(int(x) for x in data[idx, 4:6])
+    return row_to_matrix_params_lnl(data[idx])
+
+
+def row_to_matrix_params_lnl(row: np.ndarray) -> tuple:
+    """
+    Process a row of data and return the parameters, shape, and matrix.
+    """
+    params = row[:4]
+    shape = tuple(int(x) for x in row[4:6])
     n = shape[0] * shape[1]
-    matrix = data[idx, 6:6 + n].reshape(shape)
+    matrix = row[6:6 + n].reshape(shape)
     lnl = None
 
     # if there is 1 more datapoint, it is the lnL
-    if data.shape[1] > 6 + n:
-        lnl = data[idx, 6 + n]
+    if len(row) > 6 + n:
+        lnl = row[6 + n]
 
     return matrix, params, lnl

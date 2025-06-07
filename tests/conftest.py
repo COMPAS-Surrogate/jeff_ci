@@ -4,6 +4,9 @@ from unittest.mock import patch
 import h5py
 import numpy as np
 import pytest
+import os
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 np.random.seed(0)
 
