@@ -95,7 +95,7 @@ class LnLSurrogate(Likelihood):
 
 
 
-def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray|None=None) -> PriorDict:
+def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray=None) -> PriorDict:
     """
     Get the prior distribution for the parameters.
     """
@@ -114,7 +114,7 @@ def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray|None=None) -> Pr
     return PriorDict(prior)
 
 
-def sample_points(n: int = 10, parameters:List[str]=PARAMETERS, truth:np.ndarray|None=None) -> np.ndarray:
+def sample_points(n: int = 10, parameters:List[str]=PARAMETERS, truth:np.ndarray=None) -> np.ndarray:
     """
     Sample points from the prior distribution.
 
