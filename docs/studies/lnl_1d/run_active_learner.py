@@ -8,7 +8,17 @@ from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 COMPAS_H5 = sys.argv[-1]
 observation_file = "binned_rates_alpha-0.325_sigma0.213_asf0.012_dsf4.253.csv"
 OUTDIR = "outdir"
-MODEL_CACHE = "../load_cached/out_512M.csv"
+MODEL_CACHE = "../generate_data/out_512M.csv"
+
+# check all files exist
+if not os.path.exists(COMPAS_H5):
+    raise FileNotFoundError(f"COMPAS h5 file {COMPAS_H5} does not exist.")
+if not os.path.exists(observation_file):
+    raise FileNotFoundError(f"Observation file {observation_file} does not exist.")
+if not os.path.exists(MODEL_CACHE):
+    raise FileNotFoundError(f"Model cache file {MODEL_CACHE} does not exist.")
+
+
 
 os.makedirs(OUTDIR, exist_ok=True)
 
