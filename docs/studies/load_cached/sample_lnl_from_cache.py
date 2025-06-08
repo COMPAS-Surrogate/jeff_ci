@@ -1,7 +1,11 @@
 import click
 
 from cosmic_integration.lnl_computer import LnLComputer, Observation
+from cosmic_integration.lnl_surrogate.plotting import plot_scatter
+from cosmic_integration.lnl_surrogate.lnl_surrogate import BOUNDS
 import matplotlib.pyplot  as plt
+
+
 
 
 @click.command()
@@ -31,6 +35,11 @@ def main(observation_file: str, compas_h5: str, cache_fn: str, outdir: str = "."
     print(lnls.shape)
     lnl, params = lnls[:, 0], lnls[:, 1:]
     print(f"Computed {len(lnls)} log likelihoods from cache.")
+
+
+    plot_scatter(params, BOUNDS, true_minima=observation.params)
+
+
     # best lnl + param
     best_idx = lnl.argmax()
     best_lnl = lnl[best_idx]
@@ -47,6 +56,8 @@ def main(observation_file: str, compas_h5: str, cache_fn: str, outdir: str = "."
     plt.xlabel('Log Likelihood')
     plt.ylabel('Frequency')
     plt.savefig(f"{outdir}/lnl_histogram.png")
+
+
 
 
 
