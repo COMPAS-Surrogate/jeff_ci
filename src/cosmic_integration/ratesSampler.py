@@ -12,7 +12,7 @@ from astropy.cosmology import WMAP9 as cosmology
 import csv
 import argparse
 import time
-from typing import List
+from tqdm.auto import tqdm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -1102,6 +1102,9 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
     
     global verbose
 
+    ntotal = len(p_AlphaVector) * len(p_SigmaVector) * len(p_SFRaVector) * len(p_SFRdVector) * p_NumSamples
+    pbar = tqdm(total=ntotal, desc='Sampling', unit='sample', unit_scale=True)
+
 
     # create data for each sigma required
     for _, alpha in enumerate(p_AlphaVector):
@@ -1110,6 +1113,8 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
                 for _, SFRd in enumerate(p_SFRdVector):
 
                     for sample in range(p_NumSamples):
+
+                        pbar.desc = f'Sampling alp,sig,sfa,sfd=[{alpha, sigma, SFRa, SFRd}]'
 
                         print('\nSampling sample ', sample, ', alpha =', alpha, ', sigma =', sigma, ', SFRa =', SFRa, ', SFRd =', SFRd)
 
@@ -1133,6 +1138,8 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
 
                         if verbose: print('\nDetection rates written to output file: #McBins =', numChirpMassBins, ', #zBins =', numZBins)
 
+                        pbar.update(1)
+
 
 # convert string to bool (mainly for arg parser)
 def str2bool(v):
@@ -1146,6 +1153,7 @@ def str2bool(v):
 
 def main():
 
+    print("STARTING DETECTION RATES SAMPLER")
     global verbose
 
     # setup argument parser
