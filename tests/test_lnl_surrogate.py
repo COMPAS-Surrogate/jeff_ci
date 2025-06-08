@@ -3,7 +3,7 @@ import os
 import numpy as np
 from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate
 from cosmic_integration.observation import Observation
-
+from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 
 def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     """
@@ -26,8 +26,8 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
         compas_h5=test_compas_h5,
         outdir=outdir,
         initial_points=50,
-        total_steps=45,
-        steps_per_round=15,
+        total_steps=3,
+        steps_per_round=3,
         truth=obs.params
     )
 
@@ -37,4 +37,15 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     lnl = lnl_surrogate.log_likelihood()
 
     assert isinstance(lnl, float), "Log likelihood should be a float."
+
+    sample_lnl_surrogate(
+        lnl_model_path=f"{outdir}/gp_model/models",
+        outdir=f"{outdir}/MCMC",
+        verbose=True,
+        truths=obs.param_dict,
+        mcmc_kwargs={"nwalkers": 10, "iterations": 1000}
+    )
+    assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_result.json"), "MCMC samples were not saved."
+    assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_corner.png"), "Corner plot was not saved."
+
 

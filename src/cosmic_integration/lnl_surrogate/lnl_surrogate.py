@@ -23,7 +23,7 @@ class LnLSurrogate(Likelihood):
             gp_model,
             reference_lnl: float  = 0  # Reference log likelihood for normalization
     ):
-        super().__init__()
+        super().__init__(parameters={param: 0.0 for param in PARAMETERS})  # Initialize with dummy parameters
         self.gp_model = gp_model
         self.reference_lnl = reference_lnl
 
@@ -38,6 +38,9 @@ class LnLSurrogate(Likelihood):
             steps_per_round: int = 30,  # Number of steps per round
             parameters:List[str] = PARAMETERS,  # Parameters to train on
             truth: np.ndarray  = None,  # True minima for helping with visualization
+            threshold: float = 10.0,  # Threshold for negative log likelihood
+            inital_samples: np.ndarray = None,  # Initial samples for the active learner
+            initial_lnls: np.ndarray = None  # Initial log likelihoods for the active learner
     ) -> "LnLSurrogate":
         """
         Train the LnLSurrogate model.
@@ -51,10 +54,14 @@ class LnLSurrogate(Likelihood):
         )
 
         # 2. sample initial points
-        inital_samples = sample_points(initial_points, parameters)
-        initial_lnls = np.array([lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
+        if inital_samples is None or initial_lnls is None:
+            inital_samples = sample_points(initial_points, parameters)
+            initial_lnls = np.array([lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
         reference_lnl = max(initial_lnls)  # Reference log likelihood for normalization
         print(f"Reference log likelihood: {reference_lnl:,.2f}")
+
+
+
         # 3. trainable function for minimizing the log likelihood
 
         def neg_lnl_computer(*params):
@@ -66,9 +73,9 @@ class LnLSurrogate(Likelihood):
             neg_lnl = -(lnl_computer(*params) - reference_lnl)
 
             # threshold
-            if neg_lnl > 10:
+            if neg_lnl > threshold:
                 print(f"Negative log likelihood is negative: {neg_lnl:.2f} for params {params}")
-                neg_lnl = 10
+                neg_lnl = threshold
 
             return neg_lnl
 
@@ -83,11 +90,20 @@ class LnLSurrogate(Likelihood):
             true_minima=truth,  # True minima for visualization
         ).run(total_steps=total_steps, steps_per_round=steps_per_round)
 
-        return cls(model, reference_lnl)
+        return cls(model.model, reference_lnl)
+
+    @classmethod
+    def load(cls, model_dir: str ):
+        """
+        Load the LnLSurrogate model from a saved state.
+        """
+        model = ActiveLearner.load_model(model_dir)
+        return cls(model)
+
 
     def log_likelihood(self) -> float:
         params = np.array([list(self.parameters.values())])
-        neg_lnl, _ = self.gp_model.predict(params)
+        neg_lnl, _ = self.gp_model.predict_f(params)
         neg_lnl = neg_lnl.numpy().flatten()[0]
         # need to add the reference_lnl to the negative log likelihood
         lnl = neg_lnl + self.reference_lnl
