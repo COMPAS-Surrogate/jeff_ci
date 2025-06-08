@@ -37,7 +37,7 @@ class LnLSurrogate(Likelihood):
             total_steps: int = 300,  # Total number of points to sample
             steps_per_round: int = 30,  # Number of steps per round
             parameters:List[str] = PARAMETERS,  # Parameters to train on
-            truth: np.ndarray | None = None,  # True minima for helping with visualization
+            truth: np.ndarray  = None,  # True minima for helping with visualization
     ) -> "LnLSurrogate":
         """
         Train the LnLSurrogate model.

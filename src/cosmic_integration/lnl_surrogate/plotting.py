@@ -31,7 +31,7 @@ def plot_regret(all_obs, history_best, title: str = "Best Observed Value vs. Ste
     plt.close(fig)
 
 
-def plot_scatter(points, bounds, labels=None, title='scatter', fname: str = "scatter_plot.png", true_minima: np.ndarray| None = None):
+def plot_scatter(points, bounds, labels=None, title='scatter', fname: str = "scatter_plot.png", true_minima: np.ndarray= None):
     if labels is None:
         labels = [f"p{i}" for i in range(points.shape[1])]
     fig = corner.corner(

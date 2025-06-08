@@ -56,12 +56,12 @@ class ActiveLearner:
             trainable_function: Callable[..., float],
             bounds: np.ndarray,
             outdir: str,
-            initial_data_x: np.ndarray | None = None,
-            initial_data_y: np.ndarray | None = None,
+            initial_data_x: np.ndarray = None,
+            initial_data_y: np.ndarray  = None,
             initial_points: int = 5,
             random_seed: int = 42,
             ## for testing
-            true_minima: np.ndarray | None = None,
+            true_minima: np.ndarray = None,
     ):
         """
         Args:
