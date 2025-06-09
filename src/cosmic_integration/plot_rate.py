@@ -1,8 +1,10 @@
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 from .ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
 from .utils import read_output
-import sys
+import click
 from typing import List, Optional
 
 
@@ -42,18 +44,26 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
     if fname:
         plt.tight_layout()
         plt.savefig(fname)
+        plt.close()
+        print(f"Plot saved to {fname}")
     else:
         plt.show()
 
 
-def main():
-    fname = sys.argv[1] if len(sys.argv) > 1 else 'output.csv'
-    params, shape, output_data = read_output(fname)
-    print(f"Parameters: {params}")
-    print(f"Shape: {shape}")
-    print(f"Output Data:\n{output_data}")
 
-    plot_matrix(output_data, fname.replace('.csv', '.png'), params)
+
+@click.command()
+@click.argument('csv_fname', type=click.Path(exists=True))
+@click.option('-i', default=0, type=int, help='row index to read from the CSV file')
+@click.option('-o', '--outdir', default='out_rate_plots', type=str, help='output dir for the plot')
+def main(csv_fname: str, i: int, outdir: str):
+    matrix, params, _ = read_output(csv_fname)
+    print(f"Parameters: {params}")
+    print(f"Shape: {matrix.shape}")
+
+    os.makedirs(outdir, exist_ok=True)
+    fname = os.path.join(outdir, os.path.basename(csv_fname).replace('.csv', f'_{i}.png'))
+    plot_matrix(matrix, fname, params)
 
 
 if __name__ == "__main__":

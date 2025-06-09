@@ -1,11 +1,13 @@
+from typing import Optional, Tuple
+
 import numpy as np
-from isort.core import process
 
 
-def read_output(fname: str, idx: int = 0) -> tuple:
+def read_output(fname: str, idx: int = 0) -> Tuple[np.ndarray, np.ndarray, Optional[float]]:
     """
     Read the output file and return the parameters, shape, and data.
     # first 4 floats are the parameters, next two floats are the shape (nrows, ncolumns), rest is the data
+    :return: tuple of (matrix, params, lnl)
     """
     data = np.genfromtxt(fname, delimiter=',')
 
@@ -16,7 +18,7 @@ def read_output(fname: str, idx: int = 0) -> tuple:
     return row_to_matrix_params_lnl(data[idx])
 
 
-def row_to_matrix_params_lnl(row: np.ndarray) -> tuple:
+def row_to_matrix_params_lnl(row: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Optional[float]]:
     """
     Process a row of data and return the parameters, shape, and matrix.
     """
