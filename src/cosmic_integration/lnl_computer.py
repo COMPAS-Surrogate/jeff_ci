@@ -95,9 +95,13 @@ def core_ln_likelihood(
 
     """
 
+    # scale the model matrix by the duration (atm duartion is 1 year)
+    model_matrix = model_matrix * duration
+
+
     # unpack the model into the grid and the number of detections
     n_obs = np.nansum(obs_matrix)
-    model_n_obs = np.nansum(model_matrix) * duration
+    model_n_obs = np.nansum(model_matrix)
 
     # compute the likelihood
     poisson_lnl = ln_poisson_likelihood(n_obs, model_n_obs)
