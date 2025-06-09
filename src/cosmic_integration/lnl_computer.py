@@ -209,10 +209,11 @@ class LnLComputer:
             cls,
             observation_file: str,
             compas_h5: str,
-            cache_fn: Optional[str] = None
+            cache_fn: Optional[str] = None,
+            row_idx:Optional[int] = 0
     ):
         return cls(
-            observation=Observation.from_jeff(observation_file),
+            observation=Observation.from_jeff(observation_file, idx=row_idx),
             model=BinnedCosmicIntegrator.from_compas_h5(
                 inputPath=os.path.dirname(compas_h5),
                 inputName=os.path.basename(compas_h5)
