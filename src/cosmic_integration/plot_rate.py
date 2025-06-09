@@ -72,9 +72,8 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
 @click.option('-o', '--outdir', default='out_rate_plots', type=str, help='output dir for the plot')
 def main(csv_fname: str, i: int, outdir: str):
     matrix, params, _ = read_output(csv_fname, idx=i)
-    print(f"Parameters: {params}")
-    print(f"Shape: {matrix.shape}")
-    print(f"Row {i} data: {matrix[i]}")
+    print(f"Parameters: {params}, Shape: {matrix.shape}")
+    print(f"Row {i} data")
 
     os.makedirs(outdir, exist_ok=True)
     fname = os.path.join(outdir, f"rate_plot_{_param_str(params)}_row_{i}.png")

@@ -25,8 +25,11 @@ class Observation:
         else:
             matrix, params, _ = read_output(fname, idx)
 
+        duration_days = 273.5
+        duration_years = duration_days / 365.25
+
         return Observation(
-            duration=1,
+            duration=duration_years ,
             rate_matrix=matrix,
             weights=None,  # Weights can be set later if needed
             params=params
