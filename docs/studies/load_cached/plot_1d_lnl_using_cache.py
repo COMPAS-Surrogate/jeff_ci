@@ -2,6 +2,8 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from cosmic_integration.lnl_computer import LnLComputer, Observation
+import pandas as pd
+
 
 compas_h5 = '/home/avaj040/Documents/projects/COSMIC_INTEGRATOR/jeff_ci/tests/test_data/test_compas.h5'
 observation_file = '/home/avaj040/Documents/projects/COSMIC_INTEGRATOR/jeff_ci/docs/studies/load_cached/out_512M.csv'
@@ -14,10 +16,11 @@ lnl_computer = LnLComputer.load(
     row_idx=100
 )
 data = lnl_computer.compute_via_cache(observation_file)
+data_headers = ["lnl", "Alpha", "Sigma", "SFRa", "SFRd"]
+df = pd.DataFrame(data, columns=data_headers)
+
 lnls = data[:, 0]
 params = data[:, 1:]
-
-
 
 
 plt.hist(lnls, bins=50, alpha=0.7, label='Log Likelihoods')
