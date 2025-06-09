@@ -91,8 +91,8 @@ class LnLSurrogate(Likelihood):
         ).run(total_steps=total_steps, steps_per_round=steps_per_round)
 
         # best param
-        best_params = model.get_best_params()
-        lnl_computer.plot(best_params, outdir=f"{outdir}/gp_model")
+        # best_params = model.get_best_params()
+        # lnl_computer.plot(best_params, outdir=f"{outdir}/gp_model")
 
         return cls(model.model, reference_lnl)
 
