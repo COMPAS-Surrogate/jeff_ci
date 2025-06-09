@@ -62,7 +62,8 @@ def main(csv_fname: str, i: int, outdir: str):
     print(f"Shape: {matrix.shape}")
 
     os.makedirs(outdir, exist_ok=True)
-    fname = os.path.join(outdir, os.path.basename(csv_fname).replace('.csv', f'_{i}.png'))
+    param_str = "_".join([f"{p:.3f}" for p in params])
+    fname = os.path.join(outdir, f"rate_plot_{param_str}_row_{i}.png")
     plot_matrix(matrix, fname, params)
 
 
