@@ -3,35 +3,46 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from .ratesSampler import MakeChirpMassBins, NUM_REDSHIFT_BINS, MAX_DETECTION_REDSHIFT
-from .utils import read_output
+from .utils import read_output, _param_str
 import click
 from typing import List, Optional
 
 
-def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]=None):
+def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]=None, ax: Optional[plt.Axes]=None, label: str = "") -> None:
     """
     Plot the output data as a heatmap.
     """
 
     ZbinEdges = np.linspace(0, MAX_DETECTION_REDSHIFT, NUM_REDSHIFT_BINS + 1)
     mc_bin_edge, mc_bin_width = MakeChirpMassBins()
-    mc_bin_edge = np.array(mc_bin_edge)  # Convert to numpy array for consistency
-    # ditch
+    mc_bin_edge = np.array(mc_bin_edge)
 
     shape = matrix.shape
 
-    plt.figure(figsize=(6, 5))
+    # If no axes object is provided, create a new figure and axes
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(6, 5))
+    else:
+        fig = ax.figure  # Get the figure from the provided axes
+
     output_data_trimmed = matrix[:111, :]  # Shape (111, 15)
-    plt.pcolormesh(
+
+    # Plotting using the provided or created axes object
+    mesh = ax.pcolormesh(
         ZbinEdges, mc_bin_edge, output_data_trimmed, shading='flat',
         cmap='inferno'
     )
-    plt.colorbar(label='Output Value')
-    plt.title(f'Output Data Heatmap\nParameters: {params}\nShape: {shape}')
-    plt.xlabel('Redshift Bins')
-    plt.ylabel('Chirp Masses')
+    fig.colorbar(mesh, ax=ax, label='Rate')  # Attach colorbar to the correct axes
+
+    param_str = f"{_param_str(params).replace('_', ' ')}" if params is not None else ""
+    shape_str = f'Shape: {shape}'
+    title = f'{label}\n{param_str}\n{shape_str}' if label else f'{param_str}\n{shape_str}'
+
+    ax.set_title(title)
+    ax.set_xlabel('Redshift Bins')
+    ax.set_ylabel('Chirp Masses')
     n_events_per_year = np.nansum(output_data_trimmed)
-    plt.annotate(
+    ax.annotate(
         f"Grid: {output_data_trimmed.T.shape}\nN det: {n_events_per_year:.2f}/yr",
         xy=(1, 0),
         xycoords="axes fraction",
@@ -41,13 +52,16 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
         va="bottom",
         color="white",
     )
-    if fname:
-        plt.tight_layout()
-        plt.savefig(fname)
-        plt.close()
-        print(f"Plot saved to {fname}")
-    else:
-        plt.show()
+
+    # Only save or show if a new figure was created by the function
+    if ax is None:  # This condition checks if 'ax' was initially None, implying a new figure was made
+        if fname:
+            plt.tight_layout()
+            plt.savefig(fname)
+            plt.close(fig)  # Close the specific figure
+            print(f"Plot saved to {fname}")
+        else:
+            plt.show()
 
 
 
@@ -62,8 +76,7 @@ def main(csv_fname: str, i: int, outdir: str):
     print(f"Shape: {matrix.shape}")
 
     os.makedirs(outdir, exist_ok=True)
-    param_str = "_".join([f"{p:.3f}" for p in params])
-    fname = os.path.join(outdir, f"rate_plot_{param_str}_row_{i}.png")
+    fname = os.path.join(outdir, f"rate_plot_{_param_str(params)}_row_{i}.png")
     plot_matrix(matrix, fname, params)
 
 

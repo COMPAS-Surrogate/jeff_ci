@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 import numpy as np
 
@@ -33,3 +33,12 @@ def row_to_matrix_params_lnl(row: np.ndarray) -> Tuple[np.ndarray, np.ndarray, O
         lnl = row[6 + n]
 
     return matrix, params, lnl
+
+
+
+def _param_str(params: List[float]) -> str:
+    """
+    Convert a list of parameters to a string for the filename.
+    """
+    param_names = ['alp', 'sig', 'sfA', 'sfD']
+    return "_".join([f"{p}{v:.3f}" for p,v in zip(param_names, params)])

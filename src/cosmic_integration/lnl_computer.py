@@ -9,7 +9,8 @@ import numpy as np
 
 from .observation import Observation
 from .ratesSampler import BinnedCosmicIntegrator
-from .utils import row_to_matrix_params_lnl
+from .utils import row_to_matrix_params_lnl, _param_str
+from .plot_rate import plot_matrix
 
 
 def ln_poisson_likelihood(
@@ -152,6 +153,52 @@ class LnLComputer:
                            [alpha, sigma, sfr_a, sfr_d, *model_matrix.shape, *model_matrix.ravel().tolist(), lnl]),
 
         return lnl
+
+
+    def plot(self, params, outdir: str = "."):
+        """
+        Plot the model matrix for the given parameters.
+
+        :param params: List of parameters [alpha, sigma, sfr_a, sfr_d]
+        :param outdir: Output directory for the plot
+        """
+        import matplotlib.pyplot as plt
+
+        model_matrix = self.model.FindBinnedDetectionRate(
+            p_Alpha=params[0],
+            p_Sigma=params[1],
+            p_SFRa=params[2],
+            p_SFRd=params[3]
+        )
+        lnl = core_ln_likelihood(
+            model_matrix=model_matrix,
+            obs_matrix=self.observation.rate_matrix,
+            duration=self.observation.duration,
+            obs_weights=self.observation.weights
+        )
+
+        fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+        # plt the data matrix on the left, model matrix on the right
+        plot_matrix(
+            self.observation.rate_matrix,
+            params=self.observation.params,
+            ax=axes[0],
+            label="DATA"
+        )
+        plot_matrix(
+            model_matrix,
+            params=params,
+            ax=axes[1],
+            label="MODEL"
+        )
+        p_string = _param_str(params)
+        fig.suptitle(f"Log Likelihood: {lnl:,.2f}")
+        fig.tight_layout()
+        fname = os.path.join(outdir, f"lnl_matrix_{p_string}.png")
+        fig.savefig(fname)
+        plt.close(fig)
+        return fname
+
 
     @classmethod
     def load(
