@@ -28,7 +28,8 @@ obs  = Observation.from_jeff(observation_file, idx=IDX)
 lnl_computer = LnLComputer.load(
     observation_file=observation_file,
     compas_h5=compas_h5,
-    row_idx=IDX
+    row_idx=IDX,
+    cache_fn=f"{OUTDIR}/lnl_cache.csv"  # Cache file for storing results
 )
 data = lnl_computer.compute_via_cache(observation_file)
 data_headers = ["lnl", "Alpha", "Sigma", "SFRa", "SFRd"]
@@ -114,8 +115,8 @@ print(f"Threshold log likelihood: {threshold_lnl:.2f}")
 
 
 # lnl at true
-lnl_at_true = lnl_computer(*obs.params)
-print(f"Log likelihood at true params: {lnl_at_true-best_lnl:.2f}")
+# lnl_at_true = lnl_computer(*obs.params)
+# print(f"Log likelihood at true params: {lnl_at_true-best_lnl:.2f}")
 
 
 lnl_surrogate = LnLSurrogate.train(
@@ -123,8 +124,8 @@ lnl_surrogate = LnLSurrogate.train(
     compas_h5=COMPAS_H5,
     outdir=OUTDIR,
     initial_points=50,
-    total_steps=1,
-    steps_per_round=1,
+    total_steps=300,
+    steps_per_round=30,
     truth=obs.params,
     inital_samples=top_params,  # Initial samples
     initial_lnls=top_lnls,  # Initial log likelihoods

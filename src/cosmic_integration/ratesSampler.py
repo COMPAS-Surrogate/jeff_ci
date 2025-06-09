@@ -37,7 +37,7 @@ COMPAS_HDF5_FILE_NAME  = 'COMPAS_Output.h5'
 
 SNR_NOISE_FILE_PATH    = HERE
 SNR_NOISE_FILE_NAME    = '/SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5'
-SNR_SENSITIVITY        = 'O1'
+SNR_SENSITIVITY        = 'O3'
 SNR_THRESHOLD          = 8.0
 
 Mc_STEP                = 0.1
@@ -60,7 +60,7 @@ NEIJSSEL_SFR_A = 0.01
 NEIJSSEL_SFR_D = 4.7
 
 
-SAMPLE_COUNT = 10
+SAMPLE_COUNT = 1
 
 
 
@@ -68,6 +68,11 @@ ALPHA_VALUES = [-0.500, -0.400, -0.300, -0.200, -0.100, -0.001]
 SIGMA_VALUES = [ 0.100,  0.200,  0.300,  0.400,  0.500,  0.600]
 SFR_A_VALUES = [ 0.005,  0.007,  0.009,  0.011,  0.013,  0.015]
 SFR_D_VALUES = [ 4.200,  4.400,  4.600,  4.800,  5.000,  5.200]
+
+ALPHA_VALUES = np.linspace(min(ALPHA_VALUES), max(ALPHA_VALUES), 10)
+SIGMA_VALUES = np.linspace(min(SIGMA_VALUES), max(SIGMA_VALUES), 10)
+SFR_A_VALUES = np.linspace(min(SFR_A_VALUES), max(SFR_A_VALUES), 10)
+SFR_D_VALUES = np.linspace(min(SFR_D_VALUES), max(SFR_D_VALUES), 10)
 
 
 # globals
