@@ -22,8 +22,10 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
     # If no axes object is provided, create a new figure and axes
     if ax is None:
         fig, ax = plt.subplots(figsize=(6, 5))
+        save_plot = True
     else:
         fig = ax.figure  # Get the figure from the provided axes
+        save_plot = False
 
     output_data_trimmed = matrix[:111, :]  # Shape (111, 15)
 
@@ -53,15 +55,12 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
         color="white",
     )
 
-    # Only save or show if a new figure was created by the function
-    if ax is None:  # This condition checks if 'ax' was initially None, implying a new figure was made
-        if fname:
-            plt.tight_layout()
-            plt.savefig(fname)
-            plt.close(fig)  # Close the specific figure
-            print(f"Plot saved to {fname}")
-        else:
-            plt.show()
+
+    if save_plot:
+        plt.tight_layout()
+        plt.savefig(fname)
+        plt.close(fig)  # Close the specific figure
+        print(f"Plot saved to {fname}")
 
 
 
@@ -72,8 +71,7 @@ def plot_matrix(matrix:np.ndarray, fname: str= "", params: Optional[List[float]]
 @click.option('-o', '--outdir', default='out_rate_plots', type=str, help='output dir for the plot')
 def main(csv_fname: str, i: int, outdir: str):
     matrix, params, _ = read_output(csv_fname, idx=i)
-    print(f"Parameters: {params}, Shape: {matrix.shape}")
-    print(f"Row {i} data")
+    print(f"Parameters: {params}, Shape: {matrix.shape}, Row {i} ")
 
     os.makedirs(outdir, exist_ok=True)
     fname = os.path.join(outdir, f"rate_plot_{_param_str(params)}_row_{i}.png")

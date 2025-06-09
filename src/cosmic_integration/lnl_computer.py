@@ -96,7 +96,7 @@ def core_ln_likelihood(
     """
 
     # unpack the model into the grid and the number of detections
-    n_obs = np.nansum(obs_matrix) * duration
+    n_obs = np.nansum(obs_matrix)
     model_n_obs = np.nansum(model_matrix) * duration
 
     # compute the likelihood

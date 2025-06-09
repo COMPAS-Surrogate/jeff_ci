@@ -13,3 +13,4 @@ for (( i=1; i<=$num_rows; i++ )); do
     echo "Processing row $i"
     plot_ci_rates "$input_file" -i $i
 done
+

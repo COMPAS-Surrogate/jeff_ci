@@ -22,11 +22,13 @@ class Observation:
 
         if "binned_rates_" in fname:
             matrix, params = read_jeff_binned_rate_file(fname)
+            duration_days = 273.5
+            duration_years = duration_days / 365.25
         else:
             matrix, params, _ = read_output(fname, idx)
+            duration_years = 1.0  # Default duration in years for non-Jeff files
 
-        duration_days = 273.5
-        duration_years = duration_days / 365.25
+
 
         return Observation(
             duration=duration_years ,
