@@ -213,7 +213,7 @@ class LnLComputer:
             row_idx:Optional[int] = 0
     ):
         return cls(
-            observation=Observation.from_jeff(observation_file, idx=row_idx),
+            observation=Observation.from_ilya(observation_file),
             model=BinnedCosmicIntegrator.from_compas_h5(
                 inputPath=os.path.dirname(compas_h5),
                 inputName=os.path.basename(compas_h5)
