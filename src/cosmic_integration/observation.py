@@ -48,13 +48,14 @@ class Observation:
         )
 
     def __post_init__(self):
-        if self.rate_matrix.ndim != 2:
-            raise ValueError("Rate matrix must be a 2D array.")
+        if self.rate_matrix is not None:
+            if self.rate_matrix.ndim != 2:
+                raise ValueError("Rate matrix must be a 2D array.")
 
-        numChirpMassBins, numZBins = self.rate_matrix.shape
-        if numChirpMassBins < numZBins:
-            raise ValueError(
-                f"Rate matrix must be oriented with (chirp_mass bins, z bins), got shape {self.rate_matrix.shape}.")
+            numChirpMassBins, numZBins = self.rate_matrix.shape
+            if numChirpMassBins < numZBins:
+                raise ValueError(
+                    f"Rate matrix must be oriented with (chirp_mass bins, z bins), got shape {self.rate_matrix.shape}.")
 
         if self.params is None or len(self.params) != 4:
             raise ValueError(f"Parameters must be a list 4 elements, got {self.params}, len = {len(self.params)}.")
