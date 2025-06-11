@@ -1054,7 +1054,7 @@ class BinnedCosmicIntegrator(CosmicIntegration):
         # bin the detection rates
         binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
         for Mc in range(numColumns):
-            c = np.random.randint(0, numColumns)
+            c = np.random.randint(0, numColumns) #TODO: why is this random?
             McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
             for zBin in range(numRows):
                 binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
