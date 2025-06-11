@@ -2,6 +2,7 @@ import glob
 import os
 from dataclasses import dataclass
 
+import h5py
 import bilby
 import matplotlib.pyplot as plt
 import numpy as np
@@ -64,11 +65,11 @@ class MockPop:
     @classmethod
     def load(cls, ):
 
-        CACHE = os.path.join(DATA_DIR, "mock_population_weights.npy")
+        CACHE = os.path.join(DATA_DIR, "mock_population_weights.h5")
 
         if os.path.exists(CACHE):
-            # load the cached weights
-            weights = np.load(CACHE)
+            with h5py.File(CACHE, 'r') as f:
+                weights = f['weights'][:]
             return cls(weights=weights)
 
         else:
@@ -82,7 +83,8 @@ class MockPop:
 
             # CAHCE
             # save the weights to a file for future use
-            np.save(os.path.join(DATA_DIR, "mock_population_weights.npy"), weights)
+            with h5py.File(CACHE, 'w') as f:
+                f.create_dataset('weights', data=weights)
 
 
 

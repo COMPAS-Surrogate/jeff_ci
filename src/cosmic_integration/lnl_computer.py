@@ -79,7 +79,7 @@ def ln_mcz_grid_likelihood(
 def core_ln_likelihood(
         model_matrix: np.ndarray,
         duration: float, # in years
-        obs_matrix: np.ndarray,
+        obs_matrix: np.ndarray=None,
         obs_weights: Optional[np.ndarray] = None
 ) -> float:
     """
