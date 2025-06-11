@@ -100,7 +100,12 @@ def core_ln_likelihood(
 
 
     # unpack the model into the grid and the number of detections
-    n_obs = np.nansum(obs_matrix)
+    if obs_matrix is not None:
+        n_obs = np.nansum(obs_matrix)
+
+    elif obs_weights is not None:
+        n_obs = obs_weights.shape[0]  # number of events
+
     model_n_obs = np.nansum(model_matrix)
 
     # compute the likelihood
