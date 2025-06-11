@@ -73,7 +73,7 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
         lnls = np.zeros(len(p_vals))
         for i, p_val in enumerate(tqdm(p_vals, desc=f"Processing {param}")):
             params = {**lnl_computer.observation.param_dict, param: p_val}
-            lnls[i] = lnl_computer(**params, cache_fn=lnl_cache_fn)  # type: ignore
+            lnls[i] = lnl_computer(**params)  # type: ignore
             
         param_lnls[param] = {param: p_vals, "lnl": lnls}
 

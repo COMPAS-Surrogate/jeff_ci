@@ -70,7 +70,7 @@ def main(compas_h5, observation_file, model_cache, outdir, ):
         outdir=f"{outdir}/MCMC",
         verbose=True,
         truths=observation.param_dict,
-        mcmc_kwargs={"nwalkers": 10, "iterations": 1000}
+        mcmc_kwargs={"nwalkers": 10, "iterations": 5000}
     )
 
 
