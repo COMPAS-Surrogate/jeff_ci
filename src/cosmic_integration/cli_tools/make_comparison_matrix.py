@@ -6,7 +6,7 @@ import click
 @click.command()
 @click.argument("observation_file", type=click.Path(exists=True))
 @click.argument("compas_h5", type=click.Path(exists=True))
-@click.argument("params", type=str)
+@click.option("--params", type=str)
 def main(observation_file, compas_h5, params):
     """
     Run the LnLComputer to compute and plot the log likelihood for given parameters.
