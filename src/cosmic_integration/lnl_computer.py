@@ -43,19 +43,17 @@ def ln_mcz_grid_likelihood_weights(
     Computes LnL(mc, z | model)
         =  sum_n  ln sum_i  p(mc_i, z_i | model) * wi,n
         (for N_obs events, and i {mc,z} bins)
-
-
-    for even_idx in range(n_events):
-        p_event = 0
-        for mc_idx in range(n_mc):
-            for z_idx in range(n_z):
-                w = obs_weights[even_idx, mc_idx, z_idx]
-                p_event += w * model_prob_grid[mc_idx, z_idx]
-        lnl += np.log(p_event)
-
     """
-    p_events = np.einsum("nij,ij->n", obs_weights, model_prob_grid)
-    p_events = np.where(p_events > 0, p_events, np.nan)  # Avoid log(0)
+    n_events, n_mc_bins, n_z_bins = obs_weights.shape
+
+    p_events = np.zeros(n_events)  # Initialize an array to store the probabilities for each event
+    for event_idx in range(n_events):
+        w = obs_weights[event_idx, :, :]
+        # normalize the weights for this event
+        w = w / np.nansum(w) if np.nansum(w) > 0 else np.zeros_like(w)
+        p_event = np.nansum(w * model_prob_grid)
+        p_events[event_idx] = p_event
+
     return np.nansum(np.log(p_events))
 
 
@@ -180,7 +178,7 @@ class LnLComputer:
             n_events=n_events
         )
         plot_matrix(
-            model_matrix,
+            model_matrix * self.observation.duration,  # scale by duration
             params=params,
             ax=axes[1],
             label="MODEL"

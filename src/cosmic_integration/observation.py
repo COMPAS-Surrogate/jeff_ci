@@ -42,7 +42,7 @@ class Observation:
             weights = f['weights'][:]
         print(f"Loaded weights from {fname} with shape {weights.shape}")
         return cls(
-            duration=1,
+            duration=273.5/365.25,  # Duration in years
             rate_matrix=None,
             weights=weights,  # Weights can be set later if needed
             params=[-0.325, 0.213, 0.012, 4.253]
