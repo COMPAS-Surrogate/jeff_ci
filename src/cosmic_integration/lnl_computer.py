@@ -224,7 +224,6 @@ class LnLComputer:
             matrix, param, _ = row_to_matrix_params_lnl(row)
             lnl = core_ln_likelihood(
                 model_matrix=matrix,
-                obs_matrix=self.observation.rate_matrix,
                 duration=self.observation.duration,
                 obs_weights=self.observation.weights
             )
