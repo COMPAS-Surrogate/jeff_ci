@@ -1,4 +1,4 @@
-from ..lnl_computer import LnLComputer
+from ..lnl_computer import LnLComputer, Observation
 import click
 
 
@@ -14,7 +14,11 @@ def main(observation_file, compas_h5, params):
     :param compas_h5: Path to the COMPAS HDF5 file
     :param params: String of parameters in the format "alp:0.5 sig:0.3 sfA:1.0 sfD:2.0"
     """
-    params = paramstr_to_param(params)
+    if params is None:
+        obs = Observation.from_ilya(observation_file)
+        params = obs.params
+    else:
+        params = paramstr_to_param(params)
     lnl_computer = LnLComputer.load(
         observation_file=observation_file,
         compas_h5=compas_h5,
