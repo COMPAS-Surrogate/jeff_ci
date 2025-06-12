@@ -1,17 +1,18 @@
-from dataclasses import dataclass
-
-import numpy as np
 import os
 import re
-
+from dataclasses import dataclass
 from typing import Optional, Dict
+
+import h5py
+import numpy as np
+
 from .utils import read_output
 
 
 @dataclass
 class Observation:
     duration: float
-    rate_matrix: np.ndarray
+    rate_matrix: Optional[np.ndarray] = None
     weights: Optional[np.ndarray] = None
     params: Optional[np.ndarray] = None
 
@@ -22,29 +23,43 @@ class Observation:
 
         if "binned_rates_" in fname:
             matrix, params = read_jeff_binned_rate_file(fname)
+            duration_days = 273.5
+            duration_years = duration_days / 365.25
         else:
             matrix, params, _ = read_output(fname, idx)
+            duration_years = 1.0  # Default duration in years for non-Jeff files
 
         return Observation(
-            duration=1,
+            duration=duration_years,
             rate_matrix=matrix,
             weights=None,  # Weights can be set later if needed
             params=params
         )
-    
-    def __post_init__(self):
-        if self.rate_matrix.ndim != 2:
-            raise ValueError("Rate matrix must be a 2D array.")
 
-        numChirpMassBins, numZBins = self.rate_matrix.shape
-        if numChirpMassBins <  numZBins:
-            raise ValueError(f"Rate matrix must be oriented with (chirp_mass bins, z bins), got shape {self.rate_matrix.shape}.")
+    @classmethod
+    def from_ilya(cls, fname: str) -> 'Observation':
+        with h5py.File(fname, 'r') as f:
+            weights = f['weights'][:]
+        print(f"Loaded weights from {fname} with shape {weights.shape}")
+        return cls(
+            duration=273.5/365.25,  # Duration in years
+            rate_matrix=None,
+            weights=weights,  # Weights can be set later if needed
+            params=[-0.325, 0.213, 0.012, 4.253]
+        )
+
+    def __post_init__(self):
+        if self.rate_matrix is not None:
+            if self.rate_matrix.ndim != 2:
+                raise ValueError("Rate matrix must be a 2D array.")
+
+            numChirpMassBins, numZBins = self.rate_matrix.shape
+            if numChirpMassBins < numZBins:
+                raise ValueError(
+                    f"Rate matrix must be oriented with (chirp_mass bins, z bins), got shape {self.rate_matrix.shape}.")
 
         if self.params is None or len(self.params) != 4:
             raise ValueError(f"Parameters must be a list 4 elements, got {self.params}, len = {len(self.params)}.")
-        
-  
-
 
     @property
     def param_dict(self) -> Dict[str, float]:
@@ -60,8 +75,6 @@ class Observation:
             'sfr_a': self.params[2],
             'sfr_d': self.params[3]
         }
-    
-
 
 
 def _parse_float_list(line):
@@ -71,7 +84,7 @@ def _parse_float_list(line):
     ])
 
 
-def read_jeff_binned_rate_file(fname:str):
+def read_jeff_binned_rate_file(fname: str):
     """
     
     Reads a binned rate file in the format used by Jeff's code.
@@ -89,10 +102,6 @@ def read_jeff_binned_rate_file(fname:str):
     # "alpha-0.12", "sigma0.12", "asf0.112", "dsf4.253"
     params = dict(map(lambda s: re.match(r"([a-zA-Z]+)(-?\d*\.?\d+)", s).groups(), params))
     params = {k: float(v) for k, v in params.items()}
-
-
-
-
 
     # Parse header
     num_Mc_bins, num_z_bins = map(int, lines[0].split(","))

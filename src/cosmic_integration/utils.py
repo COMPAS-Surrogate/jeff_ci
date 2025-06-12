@@ -1,10 +1,13 @@
+from typing import Optional, Tuple, List
+
 import numpy as np
+import csv
 
-
-def read_output(fname: str, idx: int = 0) -> tuple:
+def read_output(fname: str, idx: int = 0) -> Tuple[np.ndarray, np.ndarray, Optional[float]]:
     """
     Read the output file and return the parameters, shape, and data.
     # first 4 floats are the parameters, next two floats are the shape (nrows, ncolumns), rest is the data
+    :return: tuple of (matrix, params, lnl)
     """
     data = np.genfromtxt(fname, delimiter=',')
 
@@ -12,14 +15,35 @@ def read_output(fname: str, idx: int = 0) -> tuple:
         # If the data is 1D, reshape it to a 2D array with one row
         data = data.reshape(1, -1)
 
-    params = data[idx, :4]
-    shape = tuple(int(x) for x in data[idx, 4:6])
+    return row_to_matrix_params_lnl(data[idx])
+
+
+def row_to_matrix_params_lnl(row: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Optional[float]]:
+    """
+    Process a row of data and return the parameters, shape, and matrix.
+    """
+    params = row[:4]
+    shape = tuple(int(x) for x in row[4:6])
     n = shape[0] * shape[1]
-    matrix = data[idx, 6:6 + n].reshape(shape)
+    matrix = row[6:6 + n].reshape(shape)
     lnl = None
 
     # if there is 1 more datapoint, it is the lnL
-    if data.shape[1] > 6 + n:
-        lnl = data[idx, 6 + n]
+    if len(row) > 6 + n:
+        lnl = row[6 + n]
 
     return matrix, params, lnl
+
+
+
+def _param_str(params: List[float]) -> str:
+    """
+    Convert a list of parameters to a string for the filename.
+    """
+    param_names = ['alp', 'sig', 'sfA', 'sfD']
+    return "_".join([f"{p}{v:.3f}" for p,v in zip(param_names, params)])
+
+def _cache_results(cache_fn: str, data: List[float]):
+    with open(cache_fn, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(data)  # Write the data as a single row

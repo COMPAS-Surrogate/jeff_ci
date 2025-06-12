@@ -37,7 +37,10 @@ dependencies = [
     "h5py",
     "matplotlib",
     "click",
-    "tqdm"
+    "tqdm",
+    "trieste",
+    "bilby",
+    "corner"
 ]
 
 
@@ -103,6 +106,8 @@ addopts = "--capture=tee-sys"
 run_cosmic_integration = "cosmic_integration.ratesSampler:main"
 plot_ci_rates = "cosmic_integration.plot_rate:main"
 run_1d_lnl_check = "cosmic_integration.cli_tools.run_1d_lnl_check:run_1d_lnl_check"
+make_comparison_matrix = "cosmic_integration.cli_tools.make_comparison_matrix:main"
+generate_random_samples = "cosmic_integration.cli_tools.generate_random_samples:main"
 
 [tool.setuptools.package-data]
 cosmic_integration = ["SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5"]

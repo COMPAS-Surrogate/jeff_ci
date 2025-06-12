@@ -12,7 +12,7 @@ from astropy.cosmology import WMAP9 as cosmology
 import csv
 import argparse
 import time
-from typing import List
+from tqdm.auto import tqdm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -37,7 +37,7 @@ COMPAS_HDF5_FILE_NAME  = 'COMPAS_Output.h5'
 
 SNR_NOISE_FILE_PATH    = HERE
 SNR_NOISE_FILE_NAME    = '/SNR_Grid_IMRPhenomPv2_FD_all_noise.hdf5'
-SNR_SENSITIVITY        = 'O1'
+SNR_SENSITIVITY        = 'O3'
 SNR_THRESHOLD          = 8.0
 
 Mc_STEP                = 0.1
@@ -60,7 +60,7 @@ NEIJSSEL_SFR_A = 0.01
 NEIJSSEL_SFR_D = 4.7
 
 
-SAMPLE_COUNT = 10
+SAMPLE_COUNT = 1
 
 
 
@@ -68,6 +68,11 @@ ALPHA_VALUES = [-0.500, -0.400, -0.300, -0.200, -0.100, -0.001]
 SIGMA_VALUES = [ 0.100,  0.200,  0.300,  0.400,  0.500,  0.600]
 SFR_A_VALUES = [ 0.005,  0.007,  0.009,  0.011,  0.013,  0.015]
 SFR_D_VALUES = [ 4.200,  4.400,  4.600,  4.800,  5.000,  5.200]
+
+ALPHA_VALUES = np.linspace(min(ALPHA_VALUES), max(ALPHA_VALUES), 10)
+SIGMA_VALUES = np.linspace(min(SIGMA_VALUES), max(SIGMA_VALUES), 10)
+SFR_A_VALUES = np.linspace(min(SFR_A_VALUES), max(SFR_A_VALUES), 10)
+SFR_D_VALUES = np.linspace(min(SFR_D_VALUES), max(SFR_D_VALUES), 10)
 
 
 # globals
@@ -1049,13 +1054,20 @@ class BinnedCosmicIntegrator(CosmicIntegration):
         # bin the detection rates
         binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
         for Mc in range(numColumns):
-            c = np.random.randint(0, numColumns)
+            c = np.random.randint(0, numColumns) #TODO: why is this random?
             McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
             for zBin in range(numRows):
                 binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
 
         return binnedDetectionRate
 
+    @classmethod
+    def from_compas_fpath(cls, fpath):
+        """
+        Create a BinnedCosmicIntegrator from a COMPAS file path.
+        """
+        inputPath, inputName = os.path.split(fpath)
+        return cls.from_compas_h5(inputPath=inputPath, inputName=inputName)
 
 
 
@@ -1102,6 +1114,9 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
     
     global verbose
 
+    ntotal = len(p_AlphaVector) * len(p_SigmaVector) * len(p_SFRaVector) * len(p_SFRdVector) * p_NumSamples
+    pbar = tqdm(total=ntotal, desc='Sampling', unit='sample', unit_scale=True)
+
 
     # create data for each sigma required
     for _, alpha in enumerate(p_AlphaVector):
@@ -1110,6 +1125,8 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
                 for _, SFRd in enumerate(p_SFRdVector):
 
                     for sample in range(p_NumSamples):
+
+                        pbar.desc = f'Sampling alp,sig,sfa,sfd=[{alpha, sigma, SFRa, SFRd}]'
 
                         print('\nSampling sample ', sample, ', alpha =', alpha, ', sigma =', sigma, ', SFRa =', SFRa, ', SFRd =', SFRd)
 
@@ -1133,6 +1150,8 @@ def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector =
 
                         if verbose: print('\nDetection rates written to output file: #McBins =', numChirpMassBins, ', #zBins =', numZBins)
 
+                        pbar.update(1)
+
 
 # convert string to bool (mainly for arg parser)
 def str2bool(v):
@@ -1146,6 +1165,7 @@ def str2bool(v):
 
 def main():
 
+    print("STARTING DETECTION RATES SAMPLER")
     global verbose
 
     # setup argument parser
