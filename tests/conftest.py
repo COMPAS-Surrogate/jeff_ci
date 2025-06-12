@@ -15,12 +15,21 @@ TEST_DATA = os.path.join(HERE, "test_data")
 OUTDIR = os.path.join(HERE, "out")
 os.makedirs(TEST_DATA, exist_ok=True)
 
+LARGE_TEST_DATA = os.path.join(HERE, "large_test_data")
+
+
 
 @pytest.fixture
 def test_compas_h5():
     """
     Fixture to provide the path to the COMPAS test data file.
     """
+
+    large_test_fn = os.path.join(LARGE_TEST_DATA, "h5out_5M.h5")
+    if os.path.exists(large_test_fn):
+        return large_test_fn
+
+
     path = os.path.join(TEST_DATA, "test_compas.h5")
     if not os.path.exists(path):
         _generate_fake_compas_file(path)
@@ -54,35 +63,14 @@ def mock_sys_argv():
 
 
 @pytest.fixture
-def observation_file(test_compas_h5, outdir, mock_sys_argv):
-    """
-    Fixture to ensure the rate file is generated before running tests.
-    """
-
-    rate_file_path = f"{outdir}/observation"
-    if not os.path.exists(rate_file_path + '.csv'):
-        from cosmic_integration import ratesSampler
-
-        param_alpha = np.mean(ratesSampler.ALPHA_VALUES)
-        param_sigma = np.mean(ratesSampler.SIGMA_VALUES)
-        param_sfra = np.mean(ratesSampler.SFR_A_VALUES)
-        param_sfrd = np.mean(ratesSampler.SFR_D_VALUES)
-
-        command = (
-            "python_ratesSampler.py "
-            f"-i {os.path.basename(test_compas_h5)} "
-            f"-p {os.path.dirname(test_compas_h5)} "
-            f"-a {param_alpha} "
-            f"-s {param_sigma} "
-            f"-A {param_sfra} "
-            f"-D {param_sfrd} "
-            "-n 1 "
-            f"{rate_file_path}"
+def observation_file(outdir):
+    mock_obs = os.path.join(outdir, "mock_observation.h5")
+    if not os.path.exists(mock_obs):
+        _download_file(
+            url = 'https://github.com/COMPAS-Surrogate/ilya_simulation/raw/refs/heads/main/mock_population_weights.h5',
+            dest = mock_obs
         )
-
-        with mock_sys_argv(command.split()):
-            ratesSampler.main()
-    return rate_file_path + '.csv'
+    return mock_obs
 
 
 def _generate_fake_compas_file(filename: str, n_systems=5000, frac_bbh: float = 0.7, frac_bns: float = 0.2,
@@ -137,3 +125,17 @@ def _generate_fake_compas_file(filename: str, n_systems=5000, frac_bbh: float = 
         f["BSE_Double_Compact_Objects"].create_dataset("Time", data=np.random.uniform(4, 13.8, n_dcos))
         f["BSE_Double_Compact_Objects"].create_dataset("Coalescence_Time", data=np.random.uniform(0, 14000, n_dcos))
         f["BSE_Double_Compact_Objects"].create_dataset("Merges_Hubble_Time", data=np.ones(n_dcos, dtype=bool))
+
+
+def _download_file(url: str, dest: str):
+    """
+    Download a file from a URL to a specified destination.
+    """
+    import requests
+    response = requests.get(url)
+    if response.status_code == 200:
+        with open(dest, 'wb') as f:
+            f.write(response.content)
+        print(f"Downloaded {url} to {dest}")
+    else:
+        raise Exception(f"Failed to download {url}, status code: {response.status_code}")

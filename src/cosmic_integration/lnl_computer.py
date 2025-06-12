@@ -9,7 +9,7 @@ import numpy as np
 
 from .observation import Observation
 from .ratesSampler import BinnedCosmicIntegrator
-from .utils import row_to_matrix_params_lnl, _param_str
+from .utils import row_to_matrix_params_lnl, _param_str, _cache_results
 from .plot_rate import plot_matrix
 
 
@@ -55,32 +55,16 @@ def ln_mcz_grid_likelihood_weights(
 
     """
     p_events = np.einsum("nij,ij->n", obs_weights, model_prob_grid)
+    p_events = np.where(p_events > 0, p_events, np.nan)  # Avoid log(0)
     return np.nansum(np.log(p_events))
 
 
-def ln_mcz_grid_likelihood(
-        obs_matrix: np.ndarray, model_matrix: np.ndarray) -> float:
-    """
-    Computes LnL(mc, z | model)
-     = for i in rows:
-          for j in columns:
-            p_event += obs_matrix[i, j] * model_matrix[i, j]
-
-
-    :param obs_matrix:
-    :param model_matrix:
-    :return:
-    """
-    p_event_matrix = obs_matrix * model_matrix
-    ln_prob = np.nansum(np.log(p_event_matrix[p_event_matrix > 0]))
-    return ln_prob
 
 
 def core_ln_likelihood(
         model_matrix: np.ndarray,
         duration: float, # in years
-        obs_matrix: np.ndarray=None,
-        obs_weights: Optional[np.ndarray] = None
+        obs_weights: np.ndarray = None
 ) -> float:
     """
     Compute the log likelihood of the model given the observation
@@ -100,21 +84,14 @@ def core_ln_likelihood(
 
 
     # unpack the model into the grid and the number of detections
-    if obs_matrix is not None:
-        n_obs = np.nansum(obs_matrix)
-
-    elif obs_weights is not None:
-        n_obs = obs_weights.shape[0]  # number of events
+    n_obs = obs_weights.shape[0]  # number of events
 
     model_n_obs = np.nansum(model_matrix)
 
     # compute the likelihood
     poisson_lnl = ln_poisson_likelihood(n_obs, model_n_obs)
 
-    if obs_weights is None:
-        mcz_lnl = ln_mcz_grid_likelihood(obs_matrix, model_matrix)
-    else:
-        mcz_lnl = ln_mcz_grid_likelihood_weights(obs_weights, model_matrix)
+    mcz_lnl = ln_mcz_grid_likelihood_weights(obs_weights, model_matrix)
     lnl = poisson_lnl + mcz_lnl
     return float(lnl)
 
@@ -151,7 +128,6 @@ class LnLComputer:
         # Compute the log likelihood
         lnl = core_ln_likelihood(
             model_matrix=model_matrix,
-            obs_matrix=self.observation.rate_matrix,
             duration=self.observation.duration,
             obs_weights=self.observation.weights
         )
@@ -181,18 +157,27 @@ class LnLComputer:
         )
         lnl = core_ln_likelihood(
             model_matrix=model_matrix,
-            obs_matrix=self.observation.rate_matrix,
             duration=self.observation.duration,
             obs_weights=self.observation.weights
         )
 
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+        if self.observation.rate_matrix is None:
+            obs_matrix = np.nansum(self.observation.weights, axis=0)
+            n_events = self.observation.weights.shape[0]
+        else:
+            obs_matrix = self.observation.rate_matrix
+            n_events = np.nansum(obs_matrix)
+
+
         # plt the data matrix on the left, model matrix on the right
         plot_matrix(
-            self.observation.rate_matrix,
+            obs_matrix,
             params=self.observation.params,
             ax=axes[0],
-            label="DATA"
+            label="DATA",
+            n_events=n_events
         )
         plot_matrix(
             model_matrix,
@@ -215,7 +200,6 @@ class LnLComputer:
             observation_file: str,
             compas_h5: str,
             cache_fn: Optional[str] = None,
-            row_idx:Optional[int] = 0
     ):
         return cls(
             observation=Observation.from_ilya(observation_file),
@@ -250,7 +234,3 @@ class LnLComputer:
         return np.array(lnls)
 
 
-def _cache_results(cache_fn: str, data: List[float]):
-    with open(cache_fn, 'a', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(data)  # Write the data as a single row

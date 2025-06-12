@@ -1,7 +1,7 @@
 from typing import Optional, Tuple, List
 
 import numpy as np
-
+import csv
 
 def read_output(fname: str, idx: int = 0) -> Tuple[np.ndarray, np.ndarray, Optional[float]]:
     """
@@ -42,3 +42,8 @@ def _param_str(params: List[float]) -> str:
     """
     param_names = ['alp', 'sig', 'sfA', 'sfD']
     return "_".join([f"{p}{v:.3f}" for p,v in zip(param_names, params)])
+
+def _cache_results(cache_fn: str, data: List[float]):
+    with open(cache_fn, 'a', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(data)  # Write the data as a single row

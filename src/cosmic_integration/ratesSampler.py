@@ -1061,6 +1061,13 @@ class BinnedCosmicIntegrator(CosmicIntegration):
 
         return binnedDetectionRate
 
+    @classmethod
+    def from_compas_fpath(cls, fpath):
+        """
+        Create a BinnedCosmicIntegrator from a COMPAS file path.
+        """
+        inputPath, inputName = os.path.split(fpath)
+        return cls.from_compas_h5(inputPath=inputPath, inputName=inputName)
 
 
 

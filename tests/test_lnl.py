@@ -5,7 +5,7 @@ import pytest
 from click.testing import CliRunner
 
 from cosmic_integration.cli_tools.run_1d_lnl_check import run_1d_lnl_check
-from cosmic_integration.lnl_computer import LnLComputer
+from cosmic_integration.lnl_computer import LnLComputer, Observation
 
 
 def test_lnl(test_compas_h5, observation_file, outdir):
@@ -15,9 +15,8 @@ def test_lnl(test_compas_h5, observation_file, outdir):
         compas_h5=test_compas_h5,
         cache_fn=f"{outdir}/lnl_cache.csv"
     )
-
-    params = dict(alpha=0.5, sigma=0.3, sfr_a=1.0, sfr_d=2.0)
-
+    obs = Observation.from_ilya(observation_file)
+    params = obs.param_dict
     lnl = lnl_computer(  **params)
     assert not np.isnan(lnl), "Log likelihood should not be NaN"
 

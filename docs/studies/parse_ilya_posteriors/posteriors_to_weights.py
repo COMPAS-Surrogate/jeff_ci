@@ -16,7 +16,7 @@ from cosmic_integration.ratesSampler import MakeChirpMassBins, MAX_CHIRPMASS, MI
 from plotting import plot_weights, add_cntr
 
 
-CLEAN = True  # set to False to keep the data directory clean
+CLEAN = False  # set to False to keep the data directory clean
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(HERE, "posteriors")
 
@@ -81,6 +81,8 @@ class MockPop:
         if os.path.exists(CACHE) and not CLEAN:
             with h5py.File(CACHE, 'r') as f:
                 weights = f['weights'][:]
+
+            print(f"Loaded cached weights from {CACHE} with shape {weights.shape}")
             return cls(weights=weights)
 
         else:

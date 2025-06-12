@@ -40,6 +40,7 @@ class Observation:
     def from_ilya(cls, fname: str) -> 'Observation':
         with h5py.File(fname, 'r') as f:
             weights = f['weights'][:]
+        print(f"Loaded weights from {fname} with shape {weights.shape}")
         return cls(
             duration=1,
             rate_matrix=None,
