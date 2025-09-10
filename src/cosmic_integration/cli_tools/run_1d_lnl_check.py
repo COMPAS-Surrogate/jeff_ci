@@ -39,7 +39,8 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
     """
     lnl_computer = LnLComputer.load(
         observation_file=observation_fpath,
-        compas_h5=compas_h5_fpath
+        compas_h5=compas_h5_fpath,
+        cache_fn=f"{outdir}/lnl_cache.csv"  # Cache file for storing results
     )
 
     # If true_params is provided, parse it into a dictionary
@@ -53,8 +54,8 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
         raise ValueError("No true parameters provided and observation does not have param_dict.")
     
 
-    lnl_cache_fn = f"{outdir}/lnl_cache.csv"
-    lnl_at_true = lnl_computer(**true_params, cache_fn=lnl_cache_fn) # type: ignore
+
+    lnl_at_true = lnl_computer(**true_params) # type: ignore
 
 
 
@@ -72,7 +73,7 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
         lnls = np.zeros(len(p_vals))
         for i, p_val in enumerate(tqdm(p_vals, desc=f"Processing {param}")):
             params = {**lnl_computer.observation.param_dict, param: p_val}
-            lnls[i] = lnl_computer(**params, cache_fn=lnl_cache_fn)  # type: ignore
+            lnls[i] = lnl_computer(**params)  # type: ignore
             
         param_lnls[param] = {param: p_vals, "lnl": lnls}
 

@@ -209,3 +209,5 @@ studies/uncertainty_testing/out
 
 /.pytest_cache/
 /dist/
+.vscode/settings.json
+/docs/studies/parse_ilya_posteriors/posteriors/
