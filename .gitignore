@@ -1,6 +1,9 @@
 tests/test_data
 tests/out
 
+*.txt
+*.csv
+*.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
