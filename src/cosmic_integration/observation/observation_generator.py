@@ -7,6 +7,7 @@ import warnings
 import os
 from scipy.interpolate import interp1d
 from tqdm import tqdm
+import tempfile
 
 import numpy as np
 import h5py
@@ -148,7 +149,7 @@ class MockObservation:
         print(f"Saved MockObservation to {filepath}")
         print(f"Shape: {self.population_weights.shape} (n_events, n_z_bins, n_mc_bins)")
 
-    def plot(self, figsize=(12, 5), cmap='Blues', fname=None,
+    def plot(self, figsize=(8, 4.5), cmap='Blues', fname=None,
              show_bin_edges=False, bin_alpha=0.3, bin_lw=0.5, bin_color='white'):
         """
         Plot prior and sum of normalized weights using imshow.
@@ -186,62 +187,23 @@ class MockObservation:
                 weights_normalized[i] = weights_normalized[i] / np.sum(weights_normalized[i])
 
         weights_sum = np.sum(weights_normalized, axis=0)
-
-        # Define extent for imshow
-        z_extent = [self.z_bin_edges[0],
-                    self.z_bin_edges[-1] + (self.z_bin_edges[-1] - self.z_bin_edges[-2])]
+        z_left_edges = self.z_bin_edges
         mc_left_edges = self.mc_bin_edges - self.mc_bin_widths
-        mc_extent = [mc_left_edges[0], self.mc_bin_edges[-1]]
+        mc_centers = self._get_mc_bin_centers()
 
-        extent = [z_extent[0], z_extent[1], mc_extent[0], mc_extent[1]]
-
-        # Left subplot: Prior
-        im1 = axes[0].imshow(prior_2d.T, cmap=cmap, aspect='auto',
-                             origin='lower', extent=extent, interpolation='nearest')
-        axes[0].set_xlabel('Redshift')
-        axes[0].set_ylabel('Chirp Mass [M☉]')
-        axes[0].set_title('Prior Distribution')
-        cbar1 = plt.colorbar(im1, ax=axes[0])
-        cbar1.set_label('Prior Density')
-
-        # Right subplot: Sum of weights
-        im2 = axes[1].imshow(weights_sum.T, cmap=cmap, aspect='auto',
-                             origin='lower', extent=extent, interpolation='nearest')
-        axes[1].set_xlabel('Redshift')
-        axes[1].set_ylabel('Chirp Mass [M☉]')
-        axes[1].set_title('Sum of Normalized Weights')
-        cbar2 = plt.colorbar(im2, ax=axes[1])
-        cbar2.set_label('Cumulative Weight')
-
-        # Add bin edges if requested
-        if show_bin_edges:
-            for ax in axes:
-                # Vertical lines for z bins (skip first and last to avoid edge artifacts)
-                for z_edge in self.z_bin_edges[1:]:
-                    ax.axvline(z_edge, color=bin_color, alpha=bin_alpha, linewidth=bin_lw)
-
-                # Horizontal lines for mc bins
-                # For variable width bins, show both left edges and right edges
-                for mc_left in mc_left_edges[1:]:  # Skip first bin
-                    ax.axhline(mc_left, color=bin_color, alpha=bin_alpha, linewidth=bin_lw)
-
-                # Also show the right edges of MC bins for completeness
-                for mc_right in self.mc_bin_edges[:-1]:  # Skip last bin to avoid duplication
-                    ax.axhline(mc_right, color=bin_color, alpha=bin_alpha, linewidth=bin_lw)
-
-        # Set limits and add subtle grid
+        prior_2d_log = np.log10(np.clip(prior_2d.T, 1e-10, None))
+        weights_sum_log = np.log10(np.clip(weights_sum.T, 1e-10, None))
+        # Plot prior
+        axes[0].pcolormesh(z_left_edges, mc_left_edges, prior_2d_log, cmap=cmap, shading='auto')
+        axes[1].pcolormesh(z_left_edges, mc_left_edges, weights_sum_log, cmap=cmap, shading='auto')
+        axes[0].set_title("Prior Density")
+        axes[1].set_title("Sum Weights(events)")
         for ax in axes:
-            ax.set_xlim(z_extent)
-            ax.set_ylim(mc_extent)
+            ax.set_xlabel("Redshift")
+            ax.set_ylabel("Chirp Mass [M☉]")
+            _fmt_yaxes(ax)
 
-            # Force plain formatting for yticks (no scientific notation)
-            ax.yaxis.set_major_formatter(ScalarFormatter())
-            ax.ticklabel_format(style='plain', axis='y')
-            # # custom tick labels BASED on bin edges
-            # y_ticks = np.concatenate((mc_left_edges, [self.mc_bin_edges[-1]]))
-            # # only show a subset of y-ticks to avoid clutter (round to nearest integer)
-            # y_ticks = np.unique(np.round(y_ticks).astype(int))
-            # ax.set_yticks(y_ticks)
+
 
 
         plt.tight_layout()
@@ -263,22 +225,21 @@ class MockObservation:
         n_events = self.n_events
         y = np.arange(n_events)
 
-        # get bin centers
-        z_centers = self._get_z_bin_centers()
-        mc_centers = self._get_mc_bin_centers()
 
         # get errors
-        zerr = posterior_quantiles[:, 0]  # shape (n_events, 3)
-        mcerr = posterior_quantiles[:, 1]  # shape (n_events, 3)
+        zqtl = posterior_quantiles[:, 0]  # shape (n_events, 3)
+        mcqtl = posterior_quantiles[:, 1]  # shape (n_events, 3)
+        zerr = np.abs(zqtl - zqtl[:, 1].reshape(-1, 1))[:, [0, 2]].T
+        mcerr = np.abs(mcqtl - mcqtl[:, 1].reshape(-1, 1))[:, [0, 2]].T
+
+
         fig, axes = plt.subplots(1, 2, figsize=(10, n_events * 0.3), sharey=True)
 
         axes[0].errorbar(
-            zerr[:, 1], y, xerr=np.array([zerr[:,0],zerr[:,2]]),
-            fmt='o', color='black', **kwgs
+            zqtl[:, 1], y, xerr=zerr, fmt='o', color='black', **kwgs
         )
         axes[1].errorbar(
-            mcerr[:,1], y, xerr=np.array([mcerr[:,0],mcerr[:,2]]),
-            fmt='o', color='black', **kwgs
+            mcqtl[:,1], y, xerr=mcerr, fmt='o', color='black', **kwgs
         )
         # labels
         axes[0].set_xlabel("Redshift")
@@ -409,7 +370,8 @@ class MockObservation:
     def _generate_population_weights(mc_found: np.ndarray, z_found: np.ndarray,
                                      mc_bin_edges: np.ndarray, mc_bin_widths: np.ndarray,
                                      z_bin_edges: np.ndarray, mc_prior: np.ndarray,
-                                     z_prior: np.ndarray, n_posterior_samples: int):
+                                     z_prior: np.ndarray, n_posterior_samples: int,
+                                     debug=True):
         """Generate weights for the entire population of events."""
 
         n_events = len(mc_found)
@@ -428,21 +390,87 @@ class MockObservation:
                 mc_found[i], z_found[i], rho, n_posterior_samples
             )
 
+
+
+
+
             # collect z and mc quantiles
             posterior_quantiles.append([
-                np.percentile(posterior_samples[:,1], [5, 50, 95]),
-                np.percentile(posterior_samples[:,0], [5, 50, 95])
+                np.percentile(posterior_samples[:,1],  [16, 50, 84]),
+                np.percentile(posterior_samples[:,0],  [16, 50, 84])
             ])
 
             if len(posterior_samples) > 0:
                 # Calculate weights for this event
-                event_weights = MockObservation._get_weights_for_one_posterior(
+                event_weights, best_mc_z = MockObservation._get_weights_for_one_posterior(
                     posterior_samples, mc_bin_edges, mc_bin_widths, z_bin_edges,
                     mc_prior, z_prior
                 )
+
+                if debug:
+
+                    # 2d histogram of posterior samples
+                    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+                    axes[0].hist2d(
+                        posterior_samples[:, 1], posterior_samples[:, 0],
+                        cmap='Blues'
+                    )
+                    axes[1].hist2d(
+                        posterior_samples[:, 1], posterior_samples[:, 0],
+                        bins=[z_bin_edges, np.concatenate([mc_bin_edges - mc_bin_widths, [mc_bin_edges[-1]]])],
+                        cmap='Blues'
+                    )
+                    z_left_edges = z_bin_edges
+                    mc_left_edges = mc_bin_edges - mc_bin_widths
+                    axes[2].pcolormesh(
+                        z_left_edges, mc_left_edges, event_weights.T,
+                        cmap='Blues', shading='auto'
+                    )
+
+                    axes[0].set_title('p(z, Mc)')
+                    axes[1].set_title('p(z, Mc) binned')
+                    axes[2].set_title('Weights')
+
+                    for ax in [axes[1], axes[2]]:
+                        _fmt_yaxes(ax)
+
+
+                    for ax in axes:
+                        ax.axvline(z_found[i], color='red', linestyle='--', alpha=0.2)
+                        ax.axhline(mc_found[i], color='red', linestyle='--', alpha=0.2)
+                        ax.set_xlabel('Redshift')
+                        ax.set_ylabel('Chirp Mass [M☉]')
+
+
+                    # save in tmpdir
+                    tmpdir = tempfile.gettempdir()
+                    plt.tight_layout()
+                    plt.suptitle(f'Event {i + 1}')
+                    plt.savefig(os.path.join(tmpdir, f'event_{i + 1}_posterior.png'), dpi=300, bbox_inches='tight')
+                    plt.close()
+
+
+                if best_mc_z is not None:
+                    qtls = np.array(posterior_quantiles[-1])[:, 1][::-1]
+                    # now check if qtls fall within best bin edges
+                    for j in range(2):
+                        if not (best_mc_z[j][0] <= qtls[j] <= best_mc_z[j][1]):
+                            warnings.warn(
+                                f"Event {i}: Posterior median {['z','mc'][j]}={qtls[j]:.2f} "
+                                f"outside best bin edges {best_mc_z[j]}"
+                            )
+
                 population_weights[i, :, :] = event_weights
+
+
+
+
+
             else:
                 population_weights[i, :, :] = np.nan
+
+        if debug:
+            print(f"Posterior plots at {tmpdir}")
 
         return population_weights, np.array(posterior_quantiles)
 
@@ -478,6 +506,7 @@ class MockObservation:
         n_z_bins, n_mc_bins = len(z_bin_edges), len(mc_bin_edges)
         weights = np.zeros((n_z_bins, n_mc_bins))
 
+
         for mc, z in posterior_samples:
             # Find bins using proper binning functions
             mc_bin = MockObservation._chirp_mass_bin(mc, mc_bin_edges)
@@ -490,9 +519,20 @@ class MockObservation:
                 if prior_prob > 0:
                     weights[z_bin, mc_bin] += 1 / prior_prob
 
+        # get max weight sample's mc and z bin edges
+        best_bin_edges = None
+        if np.sum(weights) > 0:
+            max_idx = np.unravel_index(np.argmax(weights, axis=None), weights.shape)
+            mc_right = mc_bin_edges[max_idx[1]]
+            z_left = z_bin_edges[max_idx[0]]
+            # get both left and right edges of mc bin
+            best_mc_bin_edges = [mc_right - mc_bin_widths[max_idx[1]], mc_right]
+            best_z_bin_edges = [z_left, z_left + (z_bin_edges[1] - z_bin_edges[0])]
+            best_bin_edges = np.array([best_mc_bin_edges, best_z_bin_edges]).round(2)
+
         if len(posterior_samples) > 0:
             weights /= len(posterior_samples)
-        return weights
+        return weights, best_bin_edges
 
     def summary(self) -> str:
         """Return a summary string of the MockObservation."""
@@ -517,3 +557,15 @@ class MockObservation:
                 mc_err = (mc_q[2] - mc_q[0]) / 2
                 summary_str += f"    {i+1:5d} | {z_q[1]:.3f} +/- {z_err:.3f} | {mc_q[1]:.2f} +/- {mc_err:.2f}\n"
         return summary_str
+
+
+def _fmt_yaxes(ax: plt.Axes):
+    ax.set_yscale('log')
+    ax.set_ylim(MC_BIN_R_EDGE[0], MC_BIN_R_EDGE[-1])
+    # add many more yticks -- dont use log-formatter but scalar formatter
+    ax.yaxis.set_major_formatter(ScalarFormatter())
+    # 8 ticks from MC_BIN_R_EDGE
+    tick_locs = np.unique(np.logspace(np.log10(MC_BIN_R_EDGE[0]), np.log10(MC_BIN_R_EDGE[-1]), 8).round(1))
+    ax.set_yticks(tick_locs)
+    # add tick labels
+    ax.set_yticklabels([f"{t:.1f}" for t in tick_locs])

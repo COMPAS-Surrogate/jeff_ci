@@ -23,7 +23,7 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
 
 
     # scale rates to 0.1 year
-    rates = rates * 0.1
+    rates = rates * 0.05
     fname = f"{outdir}/mock_observation.h5"
 
     if os.path.exists(fname):
