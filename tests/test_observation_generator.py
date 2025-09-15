@@ -1,4 +1,4 @@
-from cosmic_integration.observation import generate_posterior_samples, plot_gw_posteriors
+from cosmic_integration.observation.observation_generator import MockObservation
 from cosmic_integration.ratesSampler import CosmicIntegration
 import os
 import pytest
@@ -24,15 +24,18 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
 
     # scale rates to 0.1 year
     rates = rates * 0.1
-    generate_posterior_samples(
-        rates=rates,
-        chirp_masses=chirp_masses,
-        output_dir=outdir,
-    )
-    plot_gw_posteriors(
-        output_dir=outdir,
-        figsize=(6, 5),
-        save_plots=True,
-        show_plots=False,
-        dpi=150
-    )
+    fname = f"{outdir}/mock_observation.h5"
+
+    if os.path.exists(fname):
+        obs = MockObservation.load_h5(fname)
+    else:
+        obs = MockObservation.generate_from_rates(
+            rates=rates,
+            chirp_masses=chirp_masses,
+            output_file=f"{outdir}/mock_observation.h5",
+        )
+
+    obs.plot_event_summaries(fname=f"{outdir}/mock_observation_event_summaries.png")
+    obs.plot(fname=f"{outdir}/mock_observation.png")
+
+

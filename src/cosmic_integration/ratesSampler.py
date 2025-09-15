@@ -1,3 +1,29 @@
+"""
+Jeff's Cosmic-integration code
+
+Notes:
+-------
+
+It seems like the redshift bins are LEFT-EDGES:
+z_bins = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] (15 bins)
+
+While the chirp mass bins are RIGHT-EDGES:
+Mc_bins = [  0.5 ,   0.53,   0.55,   0.58,   0.61,   0.64,   0.67,   0.71,
+         0.75,   0.78,   0.82,   0.87,   0.91,   0.96,   1.01,   1.06,
+         1.11,   1.17,   1.23,   1.29,   1.36,   1.43,   1.5 ,   1.58,
+         1.66,   1.75,   1.84,   1.93,   2.03,   2.13,   2.24,   2.36,
+         2.48,   2.6 ,   2.74,   2.88,   3.03,   3.18,   3.34,   3.52,
+         3.7 ,   3.89,   4.08,   4.29,   4.51,   4.75,   4.99,   5.25,
+         5.51,   5.8 ,   6.09,   6.41,   6.74,   7.08,   7.44,   7.83,
+         8.23,   8.65,   9.09,   9.56,  10.05,  10.56,  11.11,  11.68,
+        12.27,  12.9 ,  13.57,  14.26,  14.99,  15.76,  16.57,  17.42,
+        18.31,  19.25,  20.24,  21.28,  22.37,  23.52,  24.72,  25.99,
+        27.32,  28.72,  30.2 ,  31.74,  33.37,  35.08,  36.88,  38.77,
+        40.76,  42.85,  45.05,  47.36,  49.79,  52.34,  55.03,  57.85,
+        60.82,  63.93,  67.21,  70.66,  74.28,  78.09,  82.1 ,  86.31,
+        90.73,  95.39, 100.28, 105.42, 110.83, 116.51, 122.49, 128.77] (112 bins)
+
+"""
 #! /usr/bin/env python3
 # pyright: ignore-file
 import sys
@@ -1161,6 +1187,12 @@ def str2bool(v):
     elif v.lower() in ('no', 'false', 'f', 'n', '0'): return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected!')
+
+
+def get_default_mc_z_bins():
+    z_bin_right_edges = np.arange(0.0, MAX_DETECTION_REDSHIFT + REDSHIFT_STEP, REDSHIFT_STEP)[:NUM_REDSHIFT_BINS]
+    mc_bin_left_edges, mc_bin_widths = MakeChirpMassBins(minChirpMass=MIN_CHIRPMASS, maxChirpMass=MAX_CHIRPMASS, binWidthPercent=McBIN_WIDTH_PERCENT)
+    return np.array(mc_bin_left_edges), np.array(mc_bin_widths), np.array(z_bin_right_edges)
 
 
 def main():
