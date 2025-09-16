@@ -1,7 +1,9 @@
 from cosmic_integration.observation.mock_observation import MockObservation
-from cosmic_integration.ratesSampler import CosmicIntegration, DEFAULT_PARAMS
+from cosmic_integration.ratesSampler import CosmicIntegration
+from cosmic_integration.ratesSampler.ratesSampler import DEFAULT_PARAMS
 import os
 import pytest
+import numpy as np
 
 
 
@@ -28,22 +30,20 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     )
     rates, chirp_masses = ci.FindDetectionRate(**params)
 
-
-    # scale rates to 0.1 year
-    duration  = 0.05
+    duration  = 1
     rates = rates * duration
     fname = f"{outdir}/mock_observation.h5"
+    params = np.array(list(params.values()))
 
-    if os.path.exists(fname):
-        obs = MockObservation.load_h5(fname)
-    else:
-        obs = MockObservation.generate_from_rates(
-            rates=rates,
-            chirp_masses=chirp_masses,
-            output_file=f"{outdir}/mock_observation.h5",
-            duration=duration,
-            params=list(params.values()),
-        )
+    obs = MockObservation.generate_from_rates(
+        rates=rates,
+        chirp_masses=chirp_masses,
+        output_file=f"{outdir}/mock_observation.h5",
+        duration=duration,
+        params=params,
+    )
+    obs = MockObservation.load_h5(fname)
+
 
     obs.plot_event_summaries(fname=f"{outdir}/mock_observation_event_summaries.png")
     obs.plot(fname=f"{outdir}/mock_observation.png")

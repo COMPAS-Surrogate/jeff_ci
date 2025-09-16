@@ -1,21 +1,13 @@
 from .mock_observation import MockObservation
 from .lvk_observation import LVKObservation
+from .observation_base import ObservationBase
 
 
-def load_observation(obs_type: str, *args, **kwargs) -> 'ObservationBase':
-    """
-    Load an observation of the given type.
-
-    :param obs_type: The type of observation to load. Options are 'mock' or 'lvk'.
-    :param args: Positional arguments to pass to the observation constructor.
-    :param kwargs: Keyword arguments to pass to the observation constructor.
-
-    :return: An instance of the requested observation type.
-    """
-    obs_type = obs_type.lower()
+def load_observation(fname:str) -> ObservationBase:
+    obs_type = 'mock' if 'mock' in fname else 'lvk' if 'lvk' in fname.lower() else None
     if obs_type == 'mock':
-        return MockObservation(*args, **kwargs)
+        return MockObservation.load_h5(fname)
     elif obs_type == 'lvk':
-        return LVKObservation(*args, **kwargs)
+        return LVKObservation.load_h5(fname)
     else:
-        raise ValueError(f"Unknown observation type: {obs_type}. Valid options are 'mock' or 'lvk'.")
+        raise ValueError(f"Unknown observation type in filename: {fname}. Must contain 'mock' or 'lvk'.")

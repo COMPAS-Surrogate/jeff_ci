@@ -1,8 +1,6 @@
 import os
 
-import numpy as np
-import matplotlib.pyplot as plt
-from .ratesSampler import MakeChirpMassBins, REDSHIFT_STEP, MAX_DETECTION_REDSHIFT, MAX_CHIRPMASS
+from .ratesSampler.binned_cosmic_integrator import MakeChirpMassBins, REDSHIFT_STEP, MAX_DETECTION_REDSHIFT, MAX_CHIRPMASS
 from .utils import read_output, _param_str
 import click
 from typing import List, Optional

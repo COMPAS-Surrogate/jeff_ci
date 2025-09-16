@@ -1,20 +1,26 @@
 import tempfile
 
 import numpy as np
-import h5py
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from typing import Optional
 import warnings
 import os
 from tqdm import tqdm
-from matplotlib.ticker import ScalarFormatter
 
-from ..ratesSampler import get_default_mc_z_bins
+from ..ratesSampler.binned_cosmic_integrator import get_default_mc_z_bins, ChirpMassBin, MakeChirpMassBins
+
+# Use the same bin edges as FindBinnedDetectionRate
+MC_BIN_R_EDGE, MC_BIN_WDT = MakeChirpMassBins()  # 114 edges, 114 widths
+MC_BIN_R_EDGE = np.array(MC_BIN_R_EDGE)
+MC_BIN_WDT = np.array(MC_BIN_WDT)
+Z_BIN_L_EDGE = get_default_mc_z_bins()[2]
+# Use full edges and widths to match BinnedCosmicIntegrator (115 bins)
+MC_BIN_R_EDGE_BINS = MC_BIN_R_EDGE  # 114 edges for 115 bins
+MC_BIN_WDT_BINS = MC_BIN_WDT  # 114 widths
+
 from .observation_base import ObservationBase
-
-MC_BIN_R_EDGE, MC_BIN_WDT, Z_BIN_L_EDGE = get_default_mc_z_bins()
-
+from ..plot_rate import CMAP, _get_norm, MC_LATEX, Z_LATEX, plot_matrix
 
 @dataclass
 class MockObservation(ObservationBase):
@@ -51,8 +57,9 @@ class MockObservation(ObservationBase):
             If provided, save to this HDF5 file
         """
 
-        mc_bin_edges: np.ndarray = MC_BIN_R_EDGE  # right edges
-        mc_bin_widths: np.ndarray = MC_BIN_WDT  # bin widths
+        # Use bin edges and widths for consistency with model
+        mc_bin_edges: np.ndarray = MC_BIN_R_EDGE_BINS  # 114 edges
+        mc_bin_widths: np.ndarray = MC_BIN_WDT_BINS    # 114 widths
         z_bin_edges: np.ndarray = Z_BIN_L_EDGE  # left edges
 
         print(f"Total rate sum: {np.sum(rates)}")
@@ -97,6 +104,7 @@ class MockObservation(ObservationBase):
         if output_file:
             observation.save_h5(output_file)
 
+        print(observation.summary())
         return observation
 
     @staticmethod
@@ -115,6 +123,11 @@ class MockObservation(ObservationBase):
         return np.array(mc_found), np.array(z_found)
 
     @staticmethod
+    def _chirp_mass_bin(chirp_mass: float, chirp_mass_bins: np.ndarray) -> int:
+        # Use the same binning logic as ratesSampler.ChirpMassBin
+        return ChirpMassBin(chirp_mass, chirp_mass_bins)
+
+    @staticmethod
     def _generate_priors(n_samples: int, mc_bin_edges: np.ndarray,
                          mc_bin_widths: np.ndarray, z_bin_edges: np.ndarray):
         """Generate prior density arrays for chirp mass and redshift bins."""
@@ -130,14 +143,16 @@ class MockObservation(ObservationBase):
         mc_prior_samples = mc_prior_samples[mc_cut]
 
         # Count samples in each MC bin
-        mc_prior_counts = np.zeros(len(mc_bin_edges))
+        n_mc_bins = len(mc_bin_edges) + 1
+        mc_prior_counts = np.zeros(n_mc_bins)
         for mc in mc_prior_samples:
             bin_idx = MockObservation._chirp_mass_bin(mc, mc_bin_edges)
-            if 0 <= bin_idx < len(mc_bin_edges):
+            if 0 <= bin_idx < n_mc_bins:
                 mc_prior_counts[bin_idx] += 1
 
         # Convert to density (counts / (total_counts * bin_width))
-        mc_prior_density = mc_prior_counts / (np.sum(mc_prior_counts) * mc_bin_widths)
+        mc_bin_widths_extended = np.append(mc_bin_widths, mc_bin_widths[-1])
+        mc_prior_density = mc_prior_counts / (np.sum(mc_prior_counts) * mc_bin_widths_extended)
 
         # Generate redshift prior
         z_prior_samples = 1.5 * np.random.rand(int(1e6)) ** (1 / 3)
@@ -155,16 +170,6 @@ class MockObservation(ObservationBase):
         z_prior_density = z_prior_counts / (np.sum(z_prior_counts) * z_bin_widths)
 
         return mc_prior_density, z_prior_density
-
-    @staticmethod
-    def _chirp_mass_bin(chirp_mass: float, chirp_mass_bins: np.ndarray) -> int:
-        """Find chirp mass bin using the same logic as the original function."""
-        bin_idx = 0
-        while chirp_mass >= chirp_mass_bins[bin_idx]:
-            bin_idx += 1
-            if bin_idx >= len(chirp_mass_bins):
-                break
-        return bin_idx
 
     @staticmethod
     def _redshift_bin(redshift: float, z_bin_edges: np.ndarray) -> int:
@@ -191,7 +196,10 @@ class MockObservation(ObservationBase):
         """Generate weights for the entire population of events."""
 
         n_events = len(mc_found)
-        population_weights = np.zeros((n_events, len(z_bin_edges), len(mc_bin_edges)))
+        n_mc_bins = len(mc_bin_edges) + 1  # Should be 115
+        n_z_bins = len(z_bin_edges)
+        # Change shape to (n_events, n_mc_bins, n_z_bins)
+        population_weights = np.zeros((n_events, n_mc_bins, n_z_bins))
 
         # posterior summaries per event
 
@@ -220,23 +228,19 @@ class MockObservation(ObservationBase):
                 )
 
                 if debug:
-
                     # 2d histogram of posterior samples
                     fig, axes = plt.subplots(1, 3, figsize=(14, 5))
                     axes[0].hist2d(
                         posterior_samples[:, 1], posterior_samples[:, 0],
-                        cmap='Blues'
+                        cmap=CMAP
                     )
                     axes[1].hist2d(
                         posterior_samples[:, 1], posterior_samples[:, 0],
                         bins=[z_bin_edges, np.concatenate([mc_bin_edges - mc_bin_widths, [mc_bin_edges[-1]]])],
-                        cmap='Blues'
+                        cmap=CMAP
                     )
-                    z_left_edges = z_bin_edges
-                    mc_left_edges = mc_bin_edges - mc_bin_widths
-                    axes[2].pcolormesh(
-                        z_left_edges, mc_left_edges, event_weights.T,
-                        cmap='Blues', shading='auto'
+                    plot_matrix(
+                        event_weights, ax=axes[2], label='Weights'
                     )
 
                     axes[0].set_title('p(z, Mc)')
@@ -246,8 +250,8 @@ class MockObservation(ObservationBase):
                     for ax in axes:
                         ax.axvline(z_found[i], color='red', linestyle='--', alpha=0.2)
                         ax.axhline(mc_found[i], color='red', linestyle='--', alpha=0.2)
-                        ax.set_xlabel('Redshift')
-                        ax.set_ylabel('Chirp Mass [M☉]')
+                        ax.set_xlabel(Z_LATEX)
+                        ax.set_ylabel(MC_LATEX)
 
                     # save in tmpdir
                     tmpdir = tempfile.gettempdir()
@@ -266,6 +270,7 @@ class MockObservation(ObservationBase):
                                 f"outside best bin edges {best_mc_z[j]}"
                             )
 
+                # Assign event_weights to population_weights with new shape
                 population_weights[i, :, :] = event_weights
 
             else:
@@ -305,29 +310,31 @@ class MockObservation(ObservationBase):
                                        z_bin_edges: np.ndarray, mc_prior: np.ndarray,
                                        z_prior: np.ndarray) -> np.ndarray:
         """Calculate weights for one event's posterior samples."""
-        n_z_bins, n_mc_bins = len(z_bin_edges), len(mc_bin_edges)
-        weights = np.zeros((n_z_bins, n_mc_bins))
+        n_mc_bins = len(mc_bin_edges) + 1  # Should be 115
+        n_z_bins = len(z_bin_edges)
+        weights = np.zeros((n_mc_bins, n_z_bins))
 
         for mc, z in posterior_samples:
-            # Find bins using proper binning functions
             mc_bin = MockObservation._chirp_mass_bin(mc, mc_bin_edges)
             z_bin = MockObservation._redshift_bin(z, z_bin_edges)
 
-            # Check if bins are valid
             if 0 <= mc_bin < n_mc_bins and 0 <= z_bin < n_z_bins:
-                # Get prior probability density for this bin
                 prior_prob = mc_prior[mc_bin] * z_prior[z_bin]
                 if prior_prob > 0:
-                    weights[z_bin, mc_bin] += 1 / prior_prob
+                    weights[mc_bin, z_bin] += 1 / prior_prob
 
         # get max weight sample's mc and z bin edges
         best_bin_edges = None
         if np.sum(weights) > 0:
             max_idx = np.unravel_index(np.argmax(weights, axis=None), weights.shape)
-            mc_right = mc_bin_edges[max_idx[1]]
-            z_left = z_bin_edges[max_idx[0]]
+            mc_bin_widths_extended = np.append(mc_bin_widths, mc_bin_widths[-1])
+            if max_idx[0] < len(mc_bin_edges):
+                mc_right = mc_bin_edges[max_idx[0]]
+            else:
+                mc_right = mc_bin_edges[-1] + mc_bin_widths[-1]
+            z_left = z_bin_edges[max_idx[1]]
             # get both left and right edges of mc bin
-            best_mc_bin_edges = [mc_right - mc_bin_widths[max_idx[1]], mc_right]
+            best_mc_bin_edges = [mc_right - mc_bin_widths_extended[max_idx[0]], mc_right]
             best_z_bin_edges = [z_left, z_left + (z_bin_edges[1] - z_bin_edges[0])]
             best_bin_edges = np.array([best_mc_bin_edges, best_z_bin_edges]).round(2)
 

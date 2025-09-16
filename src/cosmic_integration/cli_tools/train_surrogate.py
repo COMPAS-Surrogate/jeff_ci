@@ -2,7 +2,8 @@ import os
 
 import click
 
-from cosmic_integration.lnl_computer import LnLComputer, Observation
+from cosmic_integration.lnl_computer import LnLComputer
+from cosmic_integration.observation import load_observation, MockObservation
 from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate
 from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 
@@ -29,7 +30,7 @@ def main(compas_h5, observation_file, model_cache, outdir, ):
         cache_fn=f"{outdir}/lnl_cache.csv"
     )
 
-    observation = Observation.from_ilya(observation_file)
+    observation = load_observation(observation_file)
 
     lnls = lnl_computer.compute_via_cache(model_cache)
     lnl, params = lnls[:, 0], lnls[:, 1:]

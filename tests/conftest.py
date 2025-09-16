@@ -25,7 +25,7 @@ def test_compas_h5():
     Fixture to provide the path to the COMPAS test data file.
     """
 
-    large_test_fn = os.path.join(LARGE_TEST_DATA, "h5out_5M.h5")
+    large_test_fn = os.path.join(LARGE_TEST_DATA, "h5out_5M-REDUCED.h5")
     if os.path.exists(large_test_fn):
         return large_test_fn
 

@@ -2,7 +2,7 @@ import os
 
 import numpy as np
 from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate
-from cosmic_integration.observation import Observation
+from cosmic_integration.observation import load_observation
 from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 
 def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
@@ -18,7 +18,7 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     """
     outdir = os.path.join(outdir, "lnl_surrogate")
     os.makedirs(outdir, exist_ok=True)
-    obs = Observation.from_jeff(observation_file)
+    obs = load_observation(observation_file)
 
     # create class + train
     lnl_surrogate = LnLSurrogate.train(

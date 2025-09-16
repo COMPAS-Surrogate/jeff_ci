@@ -8,7 +8,7 @@ from .plotting import plot_weights, plot_event_summaries
 
 @dataclass
 class ObservationBase(abc.ABC):
-    population_weights: np.ndarray  # shape (n_events, n_z_bins, n_mc_bins)
+    population_weights: np.ndarray  # shape (n_events, n_mc_bins, n_z_bins)
     mc_bin_edges: np.ndarray  # right edges of MC bins
     mc_bin_widths: np.ndarray  # widths of MC bins
     z_bin_edges: np.ndarray  # left edges of Z bins (+ implicit right edge)
@@ -42,7 +42,7 @@ class ObservationBase(abc.ABC):
                 f.attrs['params'] = self.params
 
         print(f"Saved Observation to {filepath}")
-        print(f"Shape: {self.population_weights.shape} (n_events, n_z_bins, n_mc_bins)")
+        print(f"Shape: {self.population_weights.shape} (n_events, n_mc_bins, n_z_bins)")
 
     @classmethod
     def load_h5(cls, filepath: str):
@@ -68,8 +68,9 @@ class ObservationBase(abc.ABC):
             )
 
     def plot(self, *args, **kwargs):
+        # Swap axes for plotting: prior_2d shape (n_mc_bins, n_z_bins)
         return plot_weights(
-            prior_2d=np.outer(self.mc_prior, self.z_prior).T,
+            prior_2d=np.outer(self.mc_prior, self.z_prior),
             population_weights=self.population_weights,
             *args, **kwargs
         )
@@ -101,11 +102,28 @@ class ObservationBase(abc.ABC):
             if n_z_bins > n_mc_bins:
                 raise ValueError(f"Rate matrix shape invalid: {self.rate_matrix.shape}. Expected (n_mc_bins, n_z_bins) with n_mc_bins >= n_z_bins.")
 
-
         if self.params is not None:
             if len(self.params) != 4:
                 raise ValueError(f"Parameters must be a list 4 elements, got {self.params}, len = {len(self.params)}.")
-        print(self.summary())
+
+        weights = np.zeros_like(self.population_weights)
+
+        # ensure every event has normalized weights
+        idx_to_drop = []
+        for i in range(len(self.population_weights)):
+            if np.sum(self.population_weights[i]) > 0:
+                weights[i] = self.population_weights[i] / np.sum(self.population_weights[i])
+
+            # if any event has all zero weights, drop the event and warn
+            if np.sum(self.population_weights[i]) == 0:
+                idx_to_drop.append(i)
+
+        if len(idx_to_drop) > 0:
+            weights = np.delete(weights, idx_to_drop, axis=0)
+            self.posterior_quantiles = np.delete(self.posterior_quantiles, idx_to_drop, axis=0)
+            print(f"Dropped {len(idx_to_drop)} events with all zero weights. New number of events: {weights.shape[0]}")
+        self.population_weights = weights
+
 
 
     @property
@@ -152,4 +170,3 @@ class ObservationBase(abc.ABC):
                 mc_err = (mc_q[2] - mc_q[0]) / 2
                 summary_str += f"    {i+1:5d} | {z_q[1]:.3f} +/- {z_err:.3f} | {mc_q[1]:.2f} +/- {mc_err:.2f}\n"
         return summary_str
-

@@ -14,7 +14,7 @@ def test_plot_matrix(observation_file, outdir):
     # Generate the plot
     plot_matrix(
         matrix,
-        params=params,
+        params=params, # type: ignore
         fname=f"{outdir}/test_plot_matrix.png",
     )
 

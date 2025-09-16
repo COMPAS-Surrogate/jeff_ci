@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 import h5py
 
 from ..lnl_computer import LnLComputer
-from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
 
 
 
@@ -90,6 +90,22 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
     plt.savefig(f"{outdir}/lnl_1d.png")
 
 
+
+    # Get the maxL param
+    max_lnl = -np.inf
+    max_params = None
+    for param, data in param_lnls.items():
+        idx = np.argmax(data["lnl"])
+        if data["lnl"][idx] > max_lnl:
+            max_lnl = data["lnl"][idx]
+            max_params = {param: data[param][idx]}
+    print(f"Max LnL: {max_lnl} at params: {max_params}")
+
+    # plot the maxL params
+    lnl_computer.plot(
+        params={**lnl_computer.observation.param_dict, **max_params},  # type: ignore
+        outdir=outdir
+    )
 
 
 

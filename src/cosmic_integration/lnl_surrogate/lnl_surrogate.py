@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 from typing import List
 from .active_learner import ActiveLearner
 from ..lnl_computer import LnLComputer
-from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
 
 BOUNDS = np.array([
     [np.min(ALPHA_VALUES), np.min(SIGMA_VALUES), np.min(SFR_A_VALUES), np.min(SFR_D_VALUES)],

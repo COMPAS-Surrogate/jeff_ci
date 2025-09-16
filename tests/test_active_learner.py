@@ -1,6 +1,3 @@
-# test_active_learner.py
-# test_active_learner.py
-
 import os
 import numpy as np
 import pytest
