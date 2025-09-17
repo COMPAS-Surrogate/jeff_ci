@@ -32,7 +32,7 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
         observation_file=observation_file,
         compas_h5=test_compas_h5,
         outdir=outdir,
-        initial_points=50,
+        initial_points=4,
         total_steps=300,
         steps_per_round=10,
         truth=obs.params

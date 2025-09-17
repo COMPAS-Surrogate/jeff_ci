@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from bilby.core.likelihood import Likelihood
 from tqdm.auto import tqdm
@@ -59,11 +60,14 @@ class LnLSurrogate(Likelihood):
             initial_lnls = np.array(
                 [lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
 
-        tqdm.write(f"Initial LnL statistics:")
-        tqdm.write(f"  Min: {np.min(initial_lnls):,.2f}")
-        tqdm.write(f"  Max: {np.max(initial_lnls):,.2f}")
-        tqdm.write(f"  Median: {np.median(initial_lnls):,.2f}")
-        tqdm.write(f"  Range: {np.max(initial_lnls) - np.min(initial_lnls):,.2f}")
+        stats_msg = f"""Initial LnL statistics:
+  Min: {np.min(initial_lnls):,.2f}
+  Max: {np.max(initial_lnls):,.2f}
+  Median: {np.median(initial_lnls):,.2f}
+  Range: {np.max(initial_lnls) - np.min(initial_lnls):,.2f}"""
+
+        logger = logging.getLogger(__name__)
+        logger.info(stats_msg)
 
         # 3. Create negative log-likelihood computer
         neg_lnl_computer = robust_neg_lnl_computer_factory(
@@ -72,6 +76,27 @@ class LnLSurrogate(Likelihood):
 
         # Store reference for later use
         reference_lnl = neg_lnl_computer.scaler.reference_value
+
+        # 4. Bootstrap with best initial point(s) for better starting quality
+        log_filename = f"{outdir}/training.log"
+
+        # Set up file handler for this training session
+        file_handler = logging.FileHandler(log_filename, mode='a')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+        logger.addHandler(file_handler)
+
+        # Log initial statistics
+        logger.info("Training started")
+
+        bootstrap_msg = f"Bootstrap: Using {len(initial_lnls)} evaluated points as initial data"
+        logger.info(bootstrap_msg)
+
+        # Find the best initial point to ensure we start with high LnL reference
+        best_idx = np.argmax(initial_lnls)
+        best_point = inital_samples[best_idx]
+        best_lnl = initial_lnls[best_idx]
+        best_point_msg = f"Best initial point: LnL={best_lnl:.2f} at {best_point}"
+        logger.info(best_point_msg)
 
         # 4. Run active learning
         model_dir = f"{outdir}/gp_model"
@@ -86,6 +111,10 @@ class LnLSurrogate(Likelihood):
 
         # 5. Save diagnostics
         neg_lnl_computer.scaler.save(model_dir)
+
+        # Log completion
+        logger.info("Training completed successfully")
+        logger.info(f"Logs saved to {log_filename}")
 
         return cls(model.model, neg_lnl_computer.scaler)
 

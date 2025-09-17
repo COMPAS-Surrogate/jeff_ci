@@ -55,7 +55,7 @@ def test_lnl_1d(test_compas_h5, observation_file, outdir):
         [
             observation_file,
             test_compas_h5,
-            "20",  # n grid points
+            "50",  # n grid points
             "--outdir", outdir,
         ]
     )

@@ -1,8 +1,9 @@
 # active_learner.py
 
+import logging
 import os
 import shutil
-from typing import Callable
+from typing import Callable, Optional
 import glob
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -40,11 +41,11 @@ class ActiveLearner:
             trainable_function: Callable[..., float],
             bounds: np.ndarray,
             outdir: str,
-            initial_data_x: np.ndarray = None,
-            initial_data_y: np.ndarray = None,
+            initial_data_x: Optional[np.ndarray] = None,
+            initial_data_y: Optional[np.ndarray] = None,
             initial_points: int = 5,
             random_seed: int = 42,
-            true_minima: np.ndarray = None,
+            true_minima: Optional[np.ndarray] = None,
     ):
         """
         Args:
@@ -164,8 +165,9 @@ class ActiveLearner:
         # Flag to track if we should consider kernel upgrade
         self.kernel_warning_issued = False
 
-        # Wrap in Trieste model
-        self.current_model = GaussianProcessRegression(gpr, num_kernel_samples=100)
+        # Use basic Trieste model setup to avoid shape issues
+        # Wrap in Trieste model - keep it simple to avoid shape conflicts
+        self.current_model = GaussianProcessRegression(gpr, num_kernel_samples=250)
 
         # ─── 5) Create the BayesianOptimizer with available acquisition functions ───
         self.bo = BayesianOptimizer(self.observer, self.search_space)
@@ -182,10 +184,10 @@ class ActiveLearner:
 
         # Track inverse-transformed (LnL) best values
         scaler = getattr(self.trainable_function, 'scaler', None)
-        # Convert to numpy and flatten if necessary
-        y_values = np.asarray(y0_np).flatten()
-        lnl_vals = [float(scaler.inverse_transform(np.array([y]))[0]) for y in y_values]
-        self.current_best_lnl = min(lnl_vals)
+        if scaler is not None:
+            self.current_best_lnl = scaler.inverse_transform(self.current_best)
+        else:
+            self.current_best_lnl = self.current_best
         self.history_best_lnl = [self.current_best_lnl] * N_init
 
         self.true_minima = true_minima  # Store true minima if provided
@@ -201,8 +203,11 @@ class ActiveLearner:
 
         # Update inverse-transformed (LnL) best value
         scaler = getattr(self.trainable_function, 'scaler', None)
-        lnl_new_scalar = float(scaler.inverse_transform(np.array([y_new]))[0])
-        self.current_best_lnl = min(self.current_best_lnl, lnl_new_scalar)
+        if scaler is not None:
+            lnl_new_scalar = scaler.inverse_transform(y_new)
+        else:
+            lnl_new_scalar = y_new
+        self.current_best_lnl = lnl_new_scalar
         self.history_best_lnl.append(self.current_best_lnl)
 
     @property
@@ -235,10 +240,11 @@ class ActiveLearner:
         """
         Adaptively choose exploration vs exploitation based on progress
         """
+        logger = logging.getLogger(__name__)
         if round_idx < 2:
             # Early rounds: more exploration
             explore_ratio = 0.8
-            print(f"   Early exploration phase: {explore_ratio * 100:.0f}% exploration")
+            logger.info(f"Early exploration phase: {explore_ratio * 100:.0f}% exploration")
         else:
             # Look at recent improvement rate
             recent_improvements = np.diff(self.history_best[-40:]) if len(self.history_best) > 40 else []
@@ -247,16 +253,16 @@ class ActiveLearner:
                 avg_improvement = np.mean(recent_improvements)
                 if avg_improvement < -0.001:  # Still improving well
                     explore_ratio = 0.6
-                    print(
-                        f"   Good progress: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
+                    logger.info(
+                        f"Good progress: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
                 elif avg_improvement < -0.0001:  # Slow improvement
                     explore_ratio = 0.4
-                    print(
-                        f"   Slow progress: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
+                    logger.info(
+                        f"Slow progress: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
                 else:  # Very slow/no improvement
                     explore_ratio = 0.7  # Back to more exploration
-                    print(
-                        f"   Stagnation detected: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
+                    logger.info(
+                        f"Stagnation detected: {explore_ratio * 100:.0f}% exploration (avg improvement: {avg_improvement:.4f})")
             else:
                 explore_ratio = 0.6  # Default
 
@@ -293,7 +299,8 @@ class ActiveLearner:
                 explore_steps = int(round((2.0 / 3.0) * steps_per_round))
                 exploit_steps = steps_per_round - explore_steps
 
-            print(f"\nRound {r}: {explore_steps} explore + {exploit_steps} exploit steps")
+            logger = logging.getLogger(__name__)
+            logger.info(f"Round {r}: {explore_steps} explore + {exploit_steps} exploit steps")
 
             # ── Explore Phase: Pure PredictiveVariance ───────────────────────────
             for i in range(explore_steps):
@@ -323,14 +330,14 @@ class ActiveLearner:
             # Convergence warnings (no stopping)
             if convergence_warnings and self._check_convergence():
                 rounds_without_improvement += 1
-                print(f"WARNING: No significant improvement for {rounds_without_improvement} rounds")
-                print(f"   Current best: {self.current_best:.6f}")
-                print(f"   Average uncertainty: {current_uncertainty:.4f}")
-                print(f"   Consider: different acquisition strategy, kernel, or more exploration")
+                logger.warning(f"No significant improvement for {rounds_without_improvement} rounds")
+                logger.warning(f"Current best: {self.current_best:.6f}")
+                logger.warning(f"Average uncertainty: {current_uncertainty:.4f}")
+                logger.warning(f"Consider: different acquisition strategy, kernel, or more exploration")
 
                 if rounds_without_improvement >= patience:
-                    print(f"CONVERGENCE WARNING: {patience}+ rounds without improvement!")
-                    print(f"   You may want to consider stopping manually or adjusting strategy")
+                    logger.warning(f"CONVERGENCE WARNING: {patience}+ rounds without improvement!")
+                    logger.warning(f"You may want to consider stopping manually or adjusting strategy")
             else:
                 rounds_without_improvement = 0
 
@@ -338,7 +345,7 @@ class ActiveLearner:
             if self.current_best < best_so_far:
                 best_so_far = self.current_best
                 rounds_without_improvement = 0
-                print(f"New best found: {self.current_best:.6f}")
+                logger.info(f"New best found: {self.current_best:.6f}")
 
             # Save diagnostics and model
             self._plot_diagnostics(round_idx=r)
@@ -362,28 +369,31 @@ class ActiveLearner:
             model_uncertainty_history=self.model_uncertainty_history,
             points=self.current_dataset.query_points.numpy(),
             bounds=self.bounds,
-            labels=[f"p{i}" for i in range(self.dim)],
+            labels=['alpha', 'sigma', 'sfr_a', 'sfr_d'],
             true_minima=self.true_minima,
             fname=fname,
         )
 
 
-    def save_model(self, round_idx: int = None):
+    def save_model(self, round_idx: Optional[int] = None):
+        if round_idx is None:
+            round_idx = 0
         model_dir = os.path.join(self.outdir, f"models/round_{round_idx}")
         if os.path.isdir(model_dir):
             shutil.rmtree(model_dir)
         os.makedirs(model_dir)
 
         gpr_model = self.current_model.model
-        module = get_module_with_variables(self.result.try_get_final_model())
-        module.predict_f = tf.function(
-            gpr_model.predict_f,
-            input_signature=[tf.TensorSpec(shape=[None, self.dim], dtype=tf.float64)],
-        )
-        tf.saved_model.save(module, model_dir)
+        if self.result is not None:
+            module = get_module_with_variables(self.result.try_get_final_model())
+            module.predict_f = tf.function(
+                gpr_model.predict_f,
+                input_signature=[tf.TensorSpec(shape=[None, self.dim], dtype=tf.float64)],
+            )
+            tf.saved_model.save(module, model_dir)
 
     @staticmethod
-    def load_model(model_dir: str, round_idx: int = None) -> tf.Module:
+    def load_model(model_dir: str, round_idx: int | None = None) -> tf.Module:
         models = glob.glob(os.path.join(model_dir, "round_*"))
         if len(models) == 0:
             raise FileNotFoundError(f"No models found in {model_dir}.")
@@ -449,20 +459,21 @@ class ActiveLearner:
 
     def _print_kernel_diagnostics(self, round_idx: int):
         diag = self._diagnose_kernel_adequacy()
+        logger = logging.getLogger(__name__)
 
-        print(f"\nKernel Diagnostics (Round {round_idx}):")
-        print(f"   Log-likelihood: {diag['current_loglik']:.3f}")
-        print(f"   Kernel variance: {diag['current_variance']:.3f}")
-        print(f"   Lengthscales: {diag['current_lengthscales']}")
+        logger.info(f"Kernel Diagnostics (Round {round_idx}):")
+        logger.info(f"Log-likelihood: {diag['current_loglik']:.3f}")
+        logger.info(f"Kernel variance: {diag['current_variance']:.3f}")
+        logger.info(f"Lengthscales: {diag['current_lengthscales']}")
 
         if diag['warnings'] and not self.kernel_warning_issued:
-            print(f"\nKERNEL WARNINGS:")
+            logger.warning("KERNEL WARNINGS:")
             for warning in diag['warnings']:
-                print(f"   • {warning}")
+                logger.warning(f"• {warning}")
 
             if len(diag['warnings']) >= 3:
-                print(f"\nSUGGESTION: Consider upgrading to multi-scale kernel!")
-                print(f"   Current simple kernel may be inadequate for your likelihood surface")
+                logger.warning("SUGGESTION: Consider upgrading to multi-scale kernel!")
+                logger.warning("Current simple kernel may be inadequate for your likelihood surface")
                 self.kernel_warning_issued = True
 
     def _compute_model_uncertainty(self) -> float:
@@ -486,7 +497,8 @@ class ActiveLearner:
             rule = entry['rule']
             rule_counts[rule] = rule_counts.get(rule, 0) + 1
 
-        print(f"\nAcquisition Function Summary:")
+        logger = logging.getLogger(__name__)
+        logger.info("Acquisition Function Summary:")
         for rule, count in rule_counts.items():
             percentage = 100 * count / len(self.acquisition_history)
-            print(f"   {rule}: {count} steps ({percentage:.1f}%)")
+            logger.info(f"{rule}: {count} steps ({percentage:.1f}%)")

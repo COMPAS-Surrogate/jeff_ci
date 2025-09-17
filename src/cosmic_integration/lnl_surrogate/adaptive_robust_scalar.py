@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from typing import Optional, List, Callable
 import warnings
@@ -67,24 +68,24 @@ class AdaptiveRobustScaler:
             self._init_rejection_threshold(initial_lnls)
 
     def _init_rejection_threshold(self, initial_lnls: np.ndarray):
-        """Initialize rejection threshold based on initial data"""
+        """Initialize rejection threshold based on initial data with focus on high-likelihood regions"""
         sorted_lnls = np.sort(initial_lnls)
 
         if len(sorted_lnls) < 10:
             # Too few points, be conservative
             self.rejection_threshold = np.min(sorted_lnls) - 5.0
         else:
-            # Use robust IQR method
-            q75, q25 = np.percentile(sorted_lnls, [75, 25])
-            iqr = q75 - q25
+            # Focus on upper percentiles for high-likelihood exploration
+            q90, q75, q50 = np.percentile(sorted_lnls, [90, 75, 50])
 
-            # Conservative threshold: 75th percentile - 3*IQR
-            self.rejection_threshold = q75 - 3 * iqr
+            # Use median + some fraction toward q90 instead of q75 - 3IQR
+            # This focuses on the better half and encourages exploration of high-likelihood regions
+            self.rejection_threshold = q50 + 0.5 * (q90 - q50)  # 75th percentile equivalent
 
-        # Don't reject everything - ensure some exploration
+        # Ensure we don't reject everything - maintain some diversity
+        min_threshold_range = 50.0  # At least 50 units below the best
         best_initial = np.max(initial_lnls) if len(initial_lnls) > 0 else 0
-        min_acceptable = best_initial - 5.0  # Allow at least 5 units range
-        self.rejection_threshold = min(self.rejection_threshold, min_acceptable)
+        self.rejection_threshold = min(self.rejection_threshold, best_initial - min_threshold_range)
 
         self.rejection_tracker['threshold_history'].append(self.rejection_threshold)
 
@@ -169,23 +170,27 @@ class AdaptiveRobustScaler:
         return {'reject': False}
 
     def _adapt_rejection_threshold(self):
-        """Adapt rejection threshold based on recent rejection rates"""
+        """Adapt rejection threshold based on recent rejection rates - biased toward higher rejection"""
         if self.rejection_tracker['total_evaluations'] == 0:
             return
 
         rej_rate = self.rejection_tracker['rejection_rate']
 
-        # Adjust threshold based on rejection rate
-        if rej_rate > 0.7:
+        # Adjust threshold based on rejection rate - optimized for high-likelihood exploration
+        if rej_rate > 0.6:  # Changed from 0.7
             # Too many rejections - threshold might be too loose
-            self.rejection_threshold -= 2.0
-        elif rej_rate < 0.3:
-            # Rare rejections - threshold might be too strict
-            self.rejection_threshold += 1.0
+            self.rejection_threshold -= 0.5  # Reduced from 2.0 (more conservative adjustments)
+        elif rej_rate < 0.4:  # Changed from 0.3
+            # Moderate rejections - still want higher rejection, so strengthen threshold
+            self.rejection_threshold += 1.5  # Increased from 1.0 (more aggressive tightening)
+        elif rej_rate < 0.2:
+            # Very low rejection - aggressively increase to focus on high-likelihood regions
+            self.rejection_threshold += 2.0
 
         # Clamp threshold to reasonable bounds
-        min_threshold = (self.reference_value - 100) if self.n_samples > 0 else -1000
-        self.rejection_threshold = max(self.rejection_threshold, min_threshold)
+        min_threshold = (self.reference_value - 200)  # Increased minimum range
+        max_threshold = self.reference_value - 10  # Ensure some rejections are always possible
+        self.rejection_threshold = np.clip(self.rejection_threshold, min_threshold, max_threshold)
 
         self.rejection_tracker['threshold_history'].append(self.rejection_threshold)
 
@@ -262,12 +267,13 @@ class AdaptiveRobustScaler:
             json.dump(state, f, indent=2)
 
         diagnostics = self.get_diagnostics()
-        tqdm.write("Scaler diagnostics saved:")
-        tqdm.write(f"  Reference: {diagnostics['current_reference']:.2f}")
-        tqdm.write(f"  Median: {diagnostics['current_median']:.3f}")
-        tqdm.write(f"  Scale: {diagnostics['current_scale']:.3f}")
+        logger = logging.getLogger(__name__)
+        logger.info("Scaler diagnostics saved:")
+        logger.info(f"  Reference: {diagnostics['current_reference']:.2f}")
+        logger.info(f"  Median: {diagnostics['current_median']:.3f}")
+        logger.info(f"  Scale: {diagnostics['current_scale']:.3f}")
         if self.reject_bad_points:
-            tqdm.write(f"  Rejection threshold: {diagnostics.get('current_threshold', 'N/A'):.2f}")
+            logger.info(f"  Rejection threshold: {diagnostics.get('current_threshold', 'N/A'):.2f}")
 
     @classmethod
     def load(cls, outdir):
@@ -342,7 +348,8 @@ def robust_neg_lnl_computer_factory(lnl_computer, initial_lnls: np.ndarray, reje
 
                 # Log rejections occasionally
                 if eval_counter['count'] % 50 == 0:
-                    tqdm.write("Rejecting point with lnL={:.1f} < {:.1f} "
+                    logger = logging.getLogger(__name__)
+                    logger.warning("Rejecting point with lnL={:.1f} < {:.1f} "
                              "(rejection rate: {:.0f}%)".format(
                                  raw_lnl,
                                  rejection_result['threshold'],
@@ -368,15 +375,16 @@ def robust_neg_lnl_computer_factory(lnl_computer, initial_lnls: np.ndarray, reje
                     # Print diagnostics occasionally, including rejection stats if active
                     if eval_counter['count'] % 100 == 0:
                         diagnostics = scaler.get_diagnostics()
-                        tqdm.write(f"Scaler update at evaluation {eval_counter['count']}:")
-                        tqdm.write(f"  Reference: {diagnostics['current_reference']:.2f}")
-                        tqdm.write(f"  Median: {diagnostics['current_median']:.3f}")
-                        tqdm.write(f"  Scale: {diagnostics['current_scale']:.3f}")
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Scaler update at evaluation {eval_counter['count']}:")
+                        logger.info(f"  Reference: {diagnostics['current_reference']:.2f}")
+                        logger.info(f"  Median: {diagnostics['current_median']:.3f}")
+                        logger.info(f"  Scale: {diagnostics['current_scale']:.3f}")
 
                         if scaler.reject_bad_points:
                             rej_stats = diagnostics.get('rejection_stats', {})
-                            tqdm.write(f"  Rejection rate: {rej_stats.get('rejection_rate', 0)*100:.1f}%")
-                            tqdm.write(f"  Acceptance rate: {rej_stats.get('acceptance_rate', 0)*100:.1f}%")
+                            logger.info(f"  Rejection rate: {rej_stats.get('rejection_rate', 0)*100:.1f}%")
+                            logger.info(f"  Acceptance rate: {rej_stats.get('acceptance_rate', 0)*100:.1f}%")
 
             # Transform the value
             transformed = scaler.transform(raw_lnl)
