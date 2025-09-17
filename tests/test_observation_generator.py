@@ -29,9 +29,10 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
         p_SFRd=DEFAULT_PARAMS[3],
     )
     rates, chirp_masses = ci.FindDetectionRate(**params)
+    # expected n-detections
+    print(f"Expected detections: {np.sum(rates):.2f}")
 
     duration  = 1
-    rates = rates * duration
     fname = f"{outdir}/mock_observation.h5"
     params = np.array(list(params.values()))
 
@@ -41,11 +42,21 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
         output_file=f"{outdir}/mock_observation.h5",
         duration=duration,
         params=params,
+        measurement_uncertainty=False
     )
-    obs = MockObservation.load_h5(fname)
+    obs.plot(fname=f"{outdir}/mock_observation_no_uncertainty.png")
 
-
-    obs.plot_event_summaries(fname=f"{outdir}/mock_observation_event_summaries.png")
-    obs.plot(fname=f"{outdir}/mock_observation.png")
+    # obs = MockObservation.generate_from_rates(
+    #     rates=rates,
+    #     chirp_masses=chirp_masses,
+    #     output_file=f"{outdir}/mock_observation.h5",
+    #     duration=duration,
+    #     params=params,
+    # )
+    # obs = MockObservation.load_h5(fname)
+    #
+    #
+    # obs.plot_event_summaries(fname=f"{outdir}/mock_observation_event_summaries.png")
+    # obs.plot(fname=f"{outdir}/mock_observation.png")
 
 

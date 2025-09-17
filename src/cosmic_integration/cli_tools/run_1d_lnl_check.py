@@ -67,6 +67,7 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
         sfr_d=(min(SFR_D_VALUES), max(SFR_D_VALUES))
     )
 
+    # Computes LnL for one parameter at a time, varying only the selected parameter (param) across its range while keeping the other parameters fixed at their "true" values from lnl_computer.observation.param_dict.
     param_lnls = {}
     for param, (min_val, max_val) in param_ranges.items():
         p_vals = np.linspace(min_val, max_val, n)

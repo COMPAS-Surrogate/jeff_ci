@@ -160,7 +160,7 @@ def plot_matrix(
     if n_events is None:
         n_events = np.nansum(matrix)
     ax.annotate(
-        f"Grid: {matrix.T.shape}\nN det: {n_events:.2f}/yr",
+        f"Grid: {matrix.T.shape}\nSum(matrix): {n_events:.2f}",
         xy=(1, 0),
         xycoords="axes fraction",
         xytext=(-5, 5),

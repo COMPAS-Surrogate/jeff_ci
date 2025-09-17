@@ -2,7 +2,7 @@ import h5py
 import os
 import sys
 
-def create_reduced_compas_file(input_filename, output_filename):
+def create_reduced_compas_file(input_filename, output_filename=None):
     """
     Create a reduced COMPAS HDF5 file containing only the essential datasets
     needed for Cosmic Integration calculations.
@@ -14,6 +14,10 @@ def create_reduced_compas_file(input_filename, output_filename):
     output_filename : str
         Path for the reduced output HDF5 file
     """
+
+    if output_filename is None:
+        base, ext = os.path.splitext(input_filename)
+        output_filename = f"{base}_reduced{ext}"
 
     with h5py.File(input_filename, 'r') as input_file, \
             h5py.File(output_filename, 'w') as output_file:
