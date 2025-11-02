@@ -7,6 +7,7 @@ from click.testing import CliRunner
 from cosmic_integration.cli_tools.run_1d_lnl_check import run_1d_lnl_check
 from cosmic_integration.lnl_computer import LnLComputer, Observation
 
+ON_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
 
 def test_lnl(test_compas_h5, observation_file, outdir):
     np.random.seed(42)  # For reproducibility
@@ -33,9 +34,8 @@ def test_lnl(test_compas_h5, observation_file, outdir):
     )
 
 
-# puytest that only runs on manual invocation
 @pytest.mark.skipif(
-    os.environ.get("GITHUB_ACTIONS") == "true",
+    ON_GITHUB,
     reason="Skipped on GitHub CI"
 )
 def test_lnl_1d(test_compas_h5, observation_file, outdir):

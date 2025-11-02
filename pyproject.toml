@@ -20,7 +20,8 @@ requires-python = ">=3.8"
 description = "Run cosmic integration on COMPAS output"
 readme = "README.md"
 authors = [
-    { name = "Jeff Riley", email = "jeff.riley@monash.edu " },
+    { name = "Jeff Riley", email = "jeff.riley@monash.edu" },
+    { name = "Avi Vajpeyi", email = "avi.vajpeyi@gmail.com" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -30,7 +31,7 @@ classifiers = [
     "Programming Language :: Python :: 3.8",
 ]
 dependencies = [
-    "numpy",
+    "numpy>=1.25",
     "scipy",
     "astropy",
     "argparse",
@@ -40,7 +41,8 @@ dependencies = [
     "tqdm",
     "trieste",
     "bilby",
-    "corner"
+    "corner",
+    "colormath"
 ]
 
 

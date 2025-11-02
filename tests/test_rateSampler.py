@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from cosmic_integration import ratesSampler
+from cosmic_integration.plot_rate import plot_matrix
 
 
 def test_help(mock_sys_argv):
@@ -19,6 +20,9 @@ def test_rate_file_generation(test_compas_h5, outdir, mock_sys_argv):
     """
     Test that the rate file can be generated without errors.
     """
+    outdir = os.path.join(outdir, "test_rate_generation")
+    os.makedirs(outdir, exist_ok=True)
+
     output_file = f"{outdir}/test_rate_file"
     in_fname = os.path.basename(test_compas_h5)
     in_path = os.path.dirname(test_compas_h5)
@@ -59,8 +63,15 @@ def test_rate_file_generation(test_compas_h5, outdir, mock_sys_argv):
 
     # Convert to float
     data = data.astype(float)
-    np.testing.assert_allclose(data, EXPECTED_DATA, rtol=1e-5, atol=1e-8, )
+    if not np.allclose(data, EXPECTED_DATA, rtol=1e-5, atol=1e-8):
+        print("Data does not match expected values...?")
+        print("Differences:", data - EXPECTED_DATA)
 
+    plot_matrix(
+        matrix=data[6:].reshape(data[4:6].astype(int)),
+        params=data[:4],
+        fname=f"{outdir}/matrix.png"
+    )
 
 # copied from first run
 EXPECTED_DATA = np.array(

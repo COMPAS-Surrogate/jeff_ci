@@ -3,7 +3,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from .ratesSampler import MakeChirpMassBins, REDSHIFT_STEP, MAX_DETECTION_REDSHIFT, MAX_CHIRPMASS
-from .utils import read_output, _param_str
+from .utils import read_output, _param_str, _param_latex
 import click
 from typing import List, Optional
 
@@ -155,7 +155,7 @@ def plot_matrix(
     )
     fig.colorbar(mesh, ax=ax)  # Attach colorbar to the correct axes
 
-    param_str = f"{_param_str(params).replace('_', ' ')}" if params is not None else ""
+    param_str = _param_latex(params) if params is not None else ""
     title = f'{label}\n{param_str}' if label else f'{param_str}'
 
     ax.set_title(title)

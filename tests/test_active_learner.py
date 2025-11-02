@@ -10,6 +10,7 @@ from matplotlib.colors import LogNorm
 
 from cosmic_integration.lnl_surrogate.active_learner import ActiveLearner
 
+ON_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
 
 def banana(x: float, y: float, a=1, b=100) -> float:
     """
@@ -95,7 +96,13 @@ def plot_banana_and_surrogate(
     plt.close(fig)
 
 
-def test_active_learner_runs(outdir):
+@pytest.mark.parametrize(
+    "total_steps, steps_per_round",
+    [
+        (10, 10) if ON_GITHUB else (3, 2)
+    ]
+)
+def test_active_learner_runs(outdir, total_steps, steps_per_round):
     outdir = os.path.join(outdir, "test_active_learner_runs")
     os.makedirs(outdir, exist_ok=True)
 

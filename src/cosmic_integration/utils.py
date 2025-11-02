@@ -43,6 +43,13 @@ def _param_str(params: List[float]) -> str:
     param_names = ['alp', 'sig', 'sfA', 'sfD']
     return "_".join([f"{p}{v:.3f}" for p,v in zip(param_names, params)])
 
+def _param_latex(params: List[float]) -> str:
+    """
+    Convert a list of parameters to a LaTeX string for plotting.
+    """
+    param_names = [r'\alpha', r'\sigma', r'SF_A', r'SF_D']
+    return r", ".join([f"${p}={v:.2f}$" for p,v in zip(param_names, params)])
+
 def _cache_results(cache_fn: str, data: List[float]):
     with open(cache_fn, 'a', newline='') as csvfile:
         writer = csv.writer(csvfile)
