@@ -1,8 +1,29 @@
 import logging
 import bilby
+from bilby.core.prior import PriorDict, Uniform, DeltaFunction
+import numpy as np
+from typing import List
+from .lnl_surrogate import LnLSurrogate, PARAMETERS, BOUNDS
 
-from .lnl_surrogate import LnLSurrogate, get_prior
 
+
+def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray=None) -> PriorDict:
+    """
+    Get the prior distribution for the parameters.
+    """
+    prior = {}
+
+    for i, param_name in enumerate(PARAMETERS):
+
+        if param_name in parameters:
+            prior[param_name] = Uniform(*BOUNDS.T[i])
+        else:
+            if truth is not None:
+                prior[param_name] = DeltaFunction(truth[i])
+            else:
+                prior[param_name] = Uniform(np.mean(BOUNDS.T[i]))
+
+    return PriorDict(prior)
 
 
 def sample_lnl_surrogate(
@@ -21,8 +42,9 @@ def sample_lnl_surrogate(
     lnl_surrogate = LnLSurrogate.load(lnl_model_path)
     prior = get_prior()
 
-    print(f"Sampling from LnLSurrogate model at {lnl_model_path}")
-    print(f"Using prior: {prior}")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Sampling from LnLSurrogate model at {lnl_model_path}")
+    logger.info(f"Using prior: {prior}")
     mcmc_kwargs["nwalkers"] = mcmc_kwargs.get("nwalkers", 10)
     mcmc_kwargs["iterations"] = mcmc_kwargs.get("iterations", 1000)
 
@@ -58,7 +80,3 @@ def sample_lnl_surrogate(
     #     plot_density=False
     # )
     # corner_fig.savefig(f"{plot_dir}/corner.png")
-
-
-
-

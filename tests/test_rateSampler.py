@@ -3,8 +3,9 @@ import os
 import numpy as np
 import pytest
 
-from cosmic_integration import ratesSampler
 from cosmic_integration.plot_rate import plot_matrix
+from cosmic_integration.ratesSampler.main import main
+from cosmic_integration.ratesSampler.ratesSampler import DEFAULT_PARAMS
 
 
 def test_help(mock_sys_argv):
@@ -13,7 +14,7 @@ def test_help(mock_sys_argv):
     """
     with mock_sys_argv(['--help']):
         with pytest.raises(SystemExit):
-            ratesSampler.main()
+            main()
 
 
 def test_rate_file_generation(test_compas_h5, outdir, mock_sys_argv):
@@ -26,10 +27,10 @@ def test_rate_file_generation(test_compas_h5, outdir, mock_sys_argv):
     output_file = f"{outdir}/test_rate_file"
     in_fname = os.path.basename(test_compas_h5)
     in_path = os.path.dirname(test_compas_h5)
-    param_alpha = ratesSampler.ALPHA_VALUES[0]
-    param_sigma = ratesSampler.SIGMA_VALUES[0]
-    param_sfra = ratesSampler.SFR_A_VALUES[0]
-    param_sfrd = ratesSampler.SFR_D_VALUES[0]
+    param_alpha = DEFAULT_PARAMS[0]
+    param_sigma = DEFAULT_PARAMS[1]
+    param_sfra = DEFAULT_PARAMS[2]
+    param_sfrd = DEFAULT_PARAMS[3]
 
     expected_out_fname = f"{output_file}.csv"
     if os.path.exists(expected_out_fname):
@@ -48,7 +49,7 @@ def test_rate_file_generation(test_compas_h5, outdir, mock_sys_argv):
     )
 
     with mock_sys_argv(command.split()):
-        ratesSampler.main()
+        main()
 
     assert os.path.exists(expected_out_fname), f"Output file {expected_out_fname} was not created."
 

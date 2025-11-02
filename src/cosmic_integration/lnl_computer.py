@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 
 import numpy as np
 
-from .observation import Observation
+from .observation import load_observation, ObservationBase
 from .ratesSampler import BinnedCosmicIntegrator
 from .utils import row_to_matrix_params_lnl, _param_str, _cache_results
 from .plot_rate import plot_matrix
@@ -100,7 +100,7 @@ class LnLComputer:
     A class to compute the log likelihood of a model given an observation.
     """
 
-    observation: Observation
+    observation: ObservationBase
     model: BinnedCosmicIntegrator
     cache_fn: Optional[str] = None
 
@@ -127,7 +127,7 @@ class LnLComputer:
         lnl = core_ln_likelihood(
             model_matrix=model_matrix,
             duration=self.observation.duration,
-            obs_weights=self.observation.weights
+            obs_weights=self.observation.population_weights
         )
 
         # If cache_fn, store the model params, matrix-shape, matrix, and lnl
@@ -156,18 +156,13 @@ class LnLComputer:
         lnl = core_ln_likelihood(
             model_matrix=model_matrix,
             duration=self.observation.duration,
-            obs_weights=self.observation.weights
+            obs_weights=self.observation.population_weights
         )
 
         fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
-        if self.observation.rate_matrix is None:
-            obs_matrix = np.nansum(self.observation.weights, axis=0)
-            n_events = self.observation.weights.shape[0]
-        else:
-            obs_matrix = self.observation.rate_matrix
-            n_events = np.nansum(obs_matrix)
-
+        obs_matrix = np.nansum(self.observation.population_weights, axis=0)
+        n_events = self.observation.population_weights.shape[0]
 
         # plt the data matrix on the left, model matrix on the right
         plot_matrix(
@@ -200,7 +195,7 @@ class LnLComputer:
             cache_fn: Optional[str] = None,
     ):
         return cls(
-            observation=Observation.from_ilya(observation_file),
+            observation=load_observation(observation_file),
             model=BinnedCosmicIntegrator.from_compas_h5(
                 inputPath=os.path.dirname(compas_h5),
                 inputName=os.path.basename(compas_h5)

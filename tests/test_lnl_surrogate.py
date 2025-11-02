@@ -1,9 +1,15 @@
 import os
 
 from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate
-from cosmic_integration.observation import Observation
 from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
+from cosmic_integration.observation import load_observation
+import pytest
 
+ON_GITHUB = os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
+
+
+
+@pytest.mark.skipif(ON_GITHUB, reason="Skip test on GitHub Actions due to resource constraints.")
 def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     """
     Test the LnLSurrogate class.
@@ -17,19 +23,18 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     """
     outdir = os.path.join(outdir, "lnl_surrogate")
     os.makedirs(outdir, exist_ok=True)
-    obs = Observation.from_ilya(observation_file)
+    obs = load_observation(observation_file)
 
     # create class + train
     lnl_surrogate = LnLSurrogate.train(
         observation_file=observation_file,
         compas_h5=test_compas_h5,
         outdir=outdir,
-        initial_points=50,
-        total_steps=3,
-        steps_per_round=3,
+        initial_points=4,
+        total_steps=300,
+        steps_per_round=10,
         truth=obs.params
     )
-
 
     lnl_surrogate.parameters = obs.param_dict
     # check that it can predict (load some parameter)
@@ -42,9 +47,8 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
         outdir=f"{outdir}/MCMC",
         verbose=True,
         truths=obs.param_dict,
-        mcmc_kwargs={"nwalkers": 10, "iterations": 1000}
+        mcmc_kwargs={"nwalkers": 10, "iterations": 3000}
     )
     assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_result.json"), "MCMC samples were not saved."
     assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_corner.png"), "Corner plot was not saved."
-
 

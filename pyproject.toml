@@ -33,6 +33,8 @@ classifiers = [
 dependencies = [
     "numpy>=1.25",
     "scipy",
+    "tensorflow~=2.10.0",
+    "tensorflow-probability~=0.18.0",
     "astropy",
     "argparse",
     "h5py",
@@ -42,7 +44,8 @@ dependencies = [
     "trieste",
     "bilby",
     "corner",
-    "colormath"
+    "colormath",
+    "gpflow",
 ]
 
 

@@ -1,3 +1,29 @@
+"""
+Jeff's Cosmic-integration code
+
+Notes:
+-------
+
+It seems like the redshift bins are LEFT-EDGES:
+z_bins = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4] (15 bins)
+
+While the chirp mass bins are RIGHT-EDGES:
+Mc_bins = [  0.5 ,   0.53,   0.55,   0.58,   0.61,   0.64,   0.67,   0.71,
+         0.75,   0.78,   0.82,   0.87,   0.91,   0.96,   1.01,   1.06,
+         1.11,   1.17,   1.23,   1.29,   1.36,   1.43,   1.5 ,   1.58,
+         1.66,   1.75,   1.84,   1.93,   2.03,   2.13,   2.24,   2.36,
+         2.48,   2.6 ,   2.74,   2.88,   3.03,   3.18,   3.34,   3.52,
+         3.7 ,   3.89,   4.08,   4.29,   4.51,   4.75,   4.99,   5.25,
+         5.51,   5.8 ,   6.09,   6.41,   6.74,   7.08,   7.44,   7.83,
+         8.23,   8.65,   9.09,   9.56,  10.05,  10.56,  11.11,  11.68,
+        12.27,  12.9 ,  13.57,  14.26,  14.99,  15.76,  16.57,  17.42,
+        18.31,  19.25,  20.24,  21.28,  22.37,  23.52,  24.72,  25.99,
+        27.32,  28.72,  30.2 ,  31.74,  33.37,  35.08,  36.88,  38.77,
+        40.76,  42.85,  45.05,  47.36,  49.79,  52.34,  55.03,  57.85,
+        60.82,  63.93,  67.21,  70.66,  74.28,  78.09,  82.1 ,  86.31,
+        90.73,  95.39, 100.28, 105.42, 110.83, 116.51, 122.49, 128.77] (112 bins)
+
+"""
 #! /usr/bin/env python3
 # pyright: ignore-file
 import sys
@@ -32,7 +58,7 @@ MAX_DETECTION_REDSHIFT = 1.5
 REDSHIFT_STEP          = 0.1
 NUM_REDSHIFT_BINS      = int(MAX_DETECTION_REDSHIFT / REDSHIFT_STEP)
 
-COMPAS_HDF5_FILE_PATH  = '.'
+COMPAS_HDF5_FILE_PATH  = '..'
 COMPAS_HDF5_FILE_NAME  = 'COMPAS_Output.h5'
 
 SNR_NOISE_FILE_PATH    = HERE
@@ -58,6 +84,7 @@ NEIJSSEL_ALPHA = -0.23
 NEIJSSEL_SIGMA = 0.39
 NEIJSSEL_SFR_A = 0.01
 NEIJSSEL_SFR_D = 4.7
+DEFAULT_PARAMS = [NEIJSSEL_ALPHA, NEIJSSEL_SIGMA, NEIJSSEL_SFR_A, NEIJSSEL_SFR_D]
 
 
 SAMPLE_COUNT = 1
@@ -1027,199 +1054,6 @@ class CosmicIntegration:
         )
 
 
-class BinnedCosmicIntegrator(CosmicIntegration):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.defaultChirpMassBins, self.defualtChirpMassBinWidths = MakeChirpMassBins(minChirpMass=MIN_CHIRPMASS, maxChirpMass=MAX_CHIRPMASS, binWidthPercent=McBIN_WIDTH_PERCENT)
-
-    def FindBinnedDetectionRate(self,
-                          # use default values for the other detection rate parameters
-                          p_Alpha                = NEIJSSEL_ALPHA,
-                          p_Sigma                = NEIJSSEL_SIGMA,
-                          p_SFRa                 = NEIJSSEL_SFR_A,
-                          p_SFRd                 = NEIJSSEL_SFR_D,
-                          p_ChirpMassBins        = None,
-                          ):
-        if p_ChirpMassBins is None:
-            p_ChirpMassBins = self.defaultChirpMassBins
-
-        numChirpMassBins = len(p_ChirpMassBins) + 1
-        detectionRate, chirpMasses = self.FindDetectionRate(p_BinaryFraction=0.7, p_Alpha=p_Alpha, p_Sigma=p_Sigma,
-                                                            p_SFRa=p_SFRa, p_SFRd=p_SFRd)
-
-        numRows = detectionRate.shape[1]
-        numColumns = detectionRate.shape[0]
-
-        # bin the detection rates
-        binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
-        for Mc in range(numColumns):
-            c = np.random.randint(0, numColumns) #TODO: why is this random?
-            McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
-            for zBin in range(numRows):
-                binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
-
-        return binnedDetectionRate
-
-    @classmethod
-    def from_compas_fpath(cls, fpath):
-        """
-        Create a BinnedCosmicIntegrator from a COMPAS file path.
-        """
-        inputPath, inputName = os.path.split(fpath)
-        return cls.from_compas_h5(inputPath=inputPath, inputName=inputName)
 
 
 
-# create variable width chirpmass bins
-# returns:
-#   list of doubles: bin right edges
-#   list of doubles: bin widths
-def MakeChirpMassBins(minChirpMass = MIN_CHIRPMASS, maxChirpMass = MAX_CHIRPMASS, binWidthPercent = McBIN_WIDTH_PERCENT):
-
-    # first bin is 0..minChirpMass
-    binLeftEdge   = 0.0
-    thisChirpMass = minChirpMass / 2.0
-    binHalfWidth  = thisChirpMass
-    binRightEdge  = [minChirpMass]
-    binWidth      = [minChirpMass]
-
-    # remaining bins are each binWidthPercent around a chirpmass, from minChirpMass
-    while thisChirpMass < maxChirpMass:
-
-        binLeftEdge   = binRightEdge[len(binRightEdge) - 1]
-        thisChirpMass = 100.0 * binLeftEdge / (100.0 - (binWidthPercent / 2.0))
-        binHalfWidth  = thisChirpMass - binLeftEdge
-        binRightEdge.append(thisChirpMass + binHalfWidth)
-        binWidth.append(thisChirpMass + binHalfWidth - binLeftEdge)
-    
-    return binRightEdge, binWidth
-
-
-# find chirpMass bin in chirpMassBins
-# allows for variable width bins
-def ChirpMassBin(chirpMass, chirpMassBins):
-
-    bin = 0
-    while chirpMass >= chirpMassBins[bin]:
-        bin += 1
-        if bin >= len(chirpMassBins): break
-
-    return bin
-
-
-# sample from COMPAS data
-
-def Sample(CSVwriter, p_CI:BinnedCosmicIntegrator, p_NumSamples, p_AlphaVector = ALPHA_VALUES, p_SigmaVector = SIGMA_VALUES, p_SFRaVector = SFR_A_VALUES, p_SFRdVector = SFR_D_VALUES):
-    
-    global verbose
-
-    ntotal = len(p_AlphaVector) * len(p_SigmaVector) * len(p_SFRaVector) * len(p_SFRdVector) * p_NumSamples
-    pbar = tqdm(total=ntotal, desc='Sampling', unit='sample', unit_scale=True)
-
-
-    # create data for each sigma required
-    for _, alpha in enumerate(p_AlphaVector):
-        for _, sigma in enumerate(p_SigmaVector):
-            for _, SFRa in enumerate(p_SFRaVector):
-                for _, SFRd in enumerate(p_SFRdVector):
-
-                    for sample in range(p_NumSamples):
-
-                        pbar.desc = f'Sampling alp,sig,sfa,sfd=[{alpha, sigma, SFRa, SFRd}]'
-
-                        print('\nSampling sample ', sample, ', alpha =', alpha, ', sigma =', sigma, ', SFRa =', SFRa, ', SFRd =', SFRd)
-
-                        if verbose:
-                            print('Get detection rate matrix')
-                            t = time.process_time()
-
-                        binnedDetectionRate = p_CI.FindBinnedDetectionRate(alpha, sigma, SFRa, SFRd)
-                        numChirpMassBins, numZBins = binnedDetectionRate.shape
-
-                        if verbose:
-                            print('Have detection rate matrix after', time.process_time() - t, 'seconds')
-
-                        # write binned detection rates to output file
-                        row = [alpha, sigma, SFRa, SFRd, numChirpMassBins, numZBins]
-                        for xBin in range(numChirpMassBins):
-                            for yBin in range(NUM_REDSHIFT_BINS):
-                                row.append(str(binnedDetectionRate[xBin][yBin]))
-
-                        CSVwriter.writerow(row)
-
-                        if verbose: print('\nDetection rates written to output file: #McBins =', numChirpMassBins, ', #zBins =', numZBins)
-
-                        pbar.update(1)
-
-
-# convert string to bool (mainly for arg parser)
-def str2bool(v):
-    if isinstance(v, bool): return v
-
-    if   v.lower() in ('yes', 'true', 't', 'y', '1'): return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'): return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected!')
-
-
-def main():
-
-    print("STARTING DETECTION RATES SAMPLER")
-    global verbose
-
-    # setup argument parser
-    formatter = lambda prog: argparse.HelpFormatter(prog, max_help_position = 4, width = 90)
-    parser    = argparse.ArgumentParser(description = 'Detection rates sampler.', formatter_class = formatter)
-
-    # define arguments
-    parser.add_argument('outputFilename',     metavar = 'output',     type = str,      nargs = 1,                                                                  help = 'output file name')
-    parser.add_argument('-i', '--inputFilename', dest = 'inputName',  type = str,                 action = 'store',               default = COMPAS_HDF5_FILE_NAME, help = 'COMPAS HDF5 file name (def = ' + COMPAS_HDF5_FILE_NAME + ')')
-    parser.add_argument('-p', '--inputFilepath', dest = 'inputPath',  type = str,                 action = 'store',               default = COMPAS_HDF5_FILE_PATH, help = 'COMPAS HDF5 file path (def = ' + COMPAS_HDF5_FILE_PATH + ')')
-    parser.add_argument('-v', '--verbose',       dest = 'verbose',    type = str2bool, nargs='?', action = 'store', const = True, default = False,                 help = 'verbose flag (def = True)')
-    parser.add_argument('-n', '--numSamples',    dest = 'numSamples', type = int,                 action = 'store',               default = SAMPLE_COUNT,          help = 'Number of samples (def = ' + str(SAMPLE_COUNT) + ')')
-    parser.add_argument('-a', '--alpha',         dest = 'fAlpha',     type = float,               action = 'store',               default = None,                  help = 'alpha')
-    parser.add_argument('-s', '--sigma',         dest = 'fSigma',     type = float,               action = 'store',               default = None,                  help = 'sigma')
-    parser.add_argument('-A', '--sfrA',          dest = 'fsfrA',      type = float,               action = 'store',               default = None,                  help = 'sfrA')
-    parser.add_argument('-D', '--sfrD',          dest = 'fsfrD',      type = float,               action = 'store',               default = None,                  help = 'sfrD')
-
-    # parse arguments
-    args = parser.parse_args()
-
-    if len(args.outputFilename) < 1 or len(args.outputFilename) > 1:
-        print('Expected single output filename!')
-        sys.exit()
-
-    verbose = args.verbose
-
-    # set parameters ranges if not user supplied
-    fAlpha = ALPHA_VALUES if args.fAlpha is None else [args.fAlpha]
-    fSigma = SIGMA_VALUES if args.fSigma is None else [args.fSigma]
-    fsfrA  = SFR_A_VALUES if args.fsfrA  is None else [args.fsfrA]
-    fsfrD  = SFR_D_VALUES if args.fsfrD  is None else [args.fsfrD]
-
-    # seed random number generator
-    np.random.seed(0) # AVI SET TO 0 FOR REPRODUCIBILITY
-
-    # initialise Cosmic Integrator
-    if verbose:
-        print('Start CI initialisation')
-        t = time.process_time()
-
-    CI = BinnedCosmicIntegrator.from_compas_h5(inputPath = args.inputPath, inputName = args.inputName)
-
-
-    if verbose:
-        print('CI initialisation done after', time.process_time() - t, 'seconds')
-
-
-    # open csv file - overwrite any existing file
-    with open(args.outputFilename[0] + '.csv', 'w', newline = '') as csvFile:
-        writer = csv.writer(csvFile)
-
-        # get and write samples
-        Sample(writer, CI, args.numSamples, fAlpha, fSigma, fsfrA, fsfrD)
-
-
-if __name__ == "__main__":
-    main()   

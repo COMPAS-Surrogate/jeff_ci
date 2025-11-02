@@ -1,31 +1,32 @@
+import logging
 import numpy as np
 from bilby.core.likelihood import Likelihood
-from bilby.core.prior import PriorDict, Uniform, DeltaFunction
 from tqdm.auto import tqdm
+from scipy.stats import qmc
 
 from typing import List
 from .active_learner import ActiveLearner
 from ..lnl_computer import LnLComputer
-from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from .adaptive_robust_scalar import robust_neg_lnl_computer_factory, AdaptiveRobustScaler
 
 BOUNDS = np.array([
     [np.min(ALPHA_VALUES), np.min(SIGMA_VALUES), np.min(SFR_A_VALUES), np.min(SFR_D_VALUES)],
     [np.max(ALPHA_VALUES), np.max(SIGMA_VALUES), np.max(SFR_A_VALUES), np.max(SFR_D_VALUES)]
 ])
 
-
-
 PARAMETERS = ["alpha", "sigma", "sfr_a", "sfr_d"]  # Parameters to train on
+
 
 class LnLSurrogate(Likelihood):
     def __init__(
             self,
             gp_model,
-            reference_lnl: float  = 0  # Reference log likelihood for normalization
+            scaler: AdaptiveRobustScaler
     ):
         super().__init__(parameters={param: 0.0 for param in PARAMETERS})  # Initialize with dummy parameters
         self.gp_model = gp_model
-        self.reference_lnl = reference_lnl
+        self.scaler = scaler
 
     @classmethod
     def train(
@@ -36,11 +37,11 @@ class LnLSurrogate(Likelihood):
             initial_points: int = 50,  # Number of initial points for active learning
             total_steps: int = 300,  # Total number of points to sample
             steps_per_round: int = 30,  # Number of steps per round
-            parameters:List[str] = PARAMETERS,  # Parameters to train on
-            truth: np.ndarray  = None,  # True minima for helping with visualization
-            threshold: float = 10.0,  # Threshold for negative log likelihood
+            parameters: List[str] = PARAMETERS,  # Parameters to train on
+            truth: np.ndarray = None,  # True minima for helping with visualization
             inital_samples: np.ndarray = None,  # Initial samples for the active learner
-            initial_lnls: np.ndarray = None  # Initial log likelihoods for the active learner
+            initial_lnls: np.ndarray = None,  # Initial log likelihoods for the active learner
+            reject_bad_points: bool = True,  # Enable rejection of really bad likelihood points
     ) -> "LnLSurrogate":
         """
         Train the LnLSurrogate model.
@@ -56,89 +57,111 @@ class LnLSurrogate(Likelihood):
         # 2. sample initial points
         if inital_samples is None or initial_lnls is None:
             inital_samples = sample_points(initial_points, parameters)
-            initial_lnls = np.array([lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
-        reference_lnl = max(initial_lnls)  # Reference log likelihood for normalization
-        print(f"Reference log likelihood: {reference_lnl:,.2f}")
+            initial_lnls = np.array(
+                [lnl_computer(*s) for s in tqdm(inital_samples, desc="Computing initial log likelihoods")])
 
+        stats_msg = f"""Initial LnL statistics:
+  Min: {np.min(initial_lnls):,.2f}
+  Max: {np.max(initial_lnls):,.2f}
+  Median: {np.median(initial_lnls):,.2f}
+  Range: {np.max(initial_lnls) - np.min(initial_lnls):,.2f}"""
 
+        logger = logging.getLogger(__name__)
+        logger.info(stats_msg)
 
-        # 3. trainable function for minimizing the log likelihood
+        # 3. Create negative log-likelihood computer
+        neg_lnl_computer = robust_neg_lnl_computer_factory(
+            lnl_computer, initial_lnls, reject_bad_points=reject_bad_points
+        )
 
-        def neg_lnl_computer(*params):
-            """
-            Compute the negative log likelihood for the given parameters.
-            This is used to train the surrogate model.
-            """
-            params = np.array(params).flatten()
-            neg_lnl = -(lnl_computer(*params) - reference_lnl)
+        # Store reference for later use
+        reference_lnl = neg_lnl_computer.scaler.reference_value
 
-            # threshold
-            if neg_lnl > threshold:
-                print(f"Negative log likelihood is negative: {neg_lnl:.2f} for params {params}")
-                neg_lnl = threshold
+        # 4. Bootstrap with best initial point(s) for better starting quality
+        log_filename = f"{outdir}/training.log"
 
-            return neg_lnl
+        # Set up file handler for this training session
+        file_handler = logging.FileHandler(log_filename, mode='a')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+        logger.addHandler(file_handler)
 
+        # Log initial statistics
+        logger.info("Training started")
 
+        bootstrap_msg = f"Bootstrap: Using {len(initial_lnls)} evaluated points as initial data"
+        logger.info(bootstrap_msg)
 
+        # Find the best initial point to ensure we start with high LnL reference
+        best_idx = np.argmax(initial_lnls)
+        best_point = inital_samples[best_idx]
+        best_lnl = initial_lnls[best_idx]
+        best_point_msg = f"Best initial point: LnL={best_lnl:.2f} at {best_point}"
+        logger.info(best_point_msg)
+
+        # 4. Run active learning
+        model_dir = f"{outdir}/gp_model"
         _, model = ActiveLearner(
             trainable_function=neg_lnl_computer,
-            bounds=BOUNDS,  # Assuming bounds are defined in LnlComputer
-            outdir=f"{outdir}/gp_model",  # Output directory for the learner
-            initial_data_x=inital_samples,  # Initial samples
-            initial_data_y=initial_lnls,  # Initial log likelihoods
-            true_minima=truth,  # True minima for visualization
+            bounds=BOUNDS,
+            outdir=model_dir,
+            initial_data_x=inital_samples,
+            initial_data_y=np.array([neg_lnl_computer(*s) for s in inital_samples]),
+            true_minima=truth,
         ).run(total_steps=total_steps, steps_per_round=steps_per_round)
 
-        # best param
-        # best_params = model.get_best_params()
-        # lnl_computer.plot(best_params, outdir=f"{outdir}/gp_model")
+        # 5. Save diagnostics
+        neg_lnl_computer.scaler.save(model_dir)
 
-        return cls(model.model, reference_lnl)
+        # Log completion
+        logger.info("Training completed successfully")
+        logger.info(f"Logs saved to {log_filename}")
+
+        return cls(model.model, neg_lnl_computer.scaler)
 
     @classmethod
-    def load(cls, model_dir: str ):
+    def load(cls, model_dir: str):
         """
         Load the LnLSurrogate model from a saved state.
         """
         model = ActiveLearner.load_model(model_dir)
-        return cls(model)
-
+        return cls(model, AdaptiveRobustScaler.load(f"{model_dir}/../"))
 
     def log_likelihood(self) -> float:
         params = np.array([list(self.parameters.values())])
-        neg_lnl, _ = self.gp_model.predict_f(params)
-        neg_lnl = neg_lnl.numpy().flatten()[0]
-        # need to add the reference_lnl to the negative log likelihood
-        lnl = neg_lnl + self.reference_lnl
-        return lnl
+
+        # Get prediction from GP (this is the negative transformed value)
+        neg_transformed_lnl, _ = self.gp_model.predict_f(params)
+        neg_transformed_lnl = neg_transformed_lnl.numpy().flatten()[0]
+
+        # Convert back to positive transformed value
+        transformed_lnl = -neg_transformed_lnl
+
+        # Inverse transform to get back to original log-likelihood space
+        original_lnl = self.scaler.inverse_transform(transformed_lnl)
+
+        return original_lnl
 
 
+def sample_points(n: int = 10, parameters: List[str] = PARAMETERS) -> np.ndarray:
+    sampler = qmc.LatinHypercube(d=len(PARAMETERS))
+    lhc_samples = sampler.random(n=n // 2)
 
-def get_prior(parameters:List[str]=PARAMETERS, truth:np.ndarray=None) -> PriorDict:
-    """
-    Get the prior distribution for the parameters.
-    """
-    prior = {}
+    # Scale to parameter bounds
+    scaled_samples = qmc.scale(lhc_samples, BOUNDS[0], BOUNDS[1])
 
-    for i, param_name in enumerate(PARAMETERS):
+    # Stage 2: Add some corner/edge cases
+    corners = []
+    for i in range(min(n // 4, 2 ** len(PARAMETERS))):
+        corner = []
+        for j, (low, high) in enumerate(BOUNDS.T):
+            corner.append(low if (i >> j) & 1 else high)
+        corners.append(corner)
 
-        if param_name in parameters:
-            prior[param_name] = Uniform(*BOUNDS.T[i])
-        else:
-            if truth is not None:
-                prior[param_name] = DeltaFunction(truth[i])
-            else:
-                prior[param_name] = Uniform(np.mean(BOUNDS.T[i]))
-
-    return PriorDict(prior)
-
-
-def sample_points(n: int = 10, parameters:List[str]=PARAMETERS, truth:np.ndarray=None) -> np.ndarray:
-    """
-    Sample points from the prior distribution.
-
-    """
-    samples = get_prior(parameters=parameters, truth=truth).sample(n)
-    samples = np.array([s for s in samples.values()]).T
-    return samples
+    # Stage 3: Add some random samples
+    remaining = n - len(scaled_samples) - len(corners)
+    if remaining > 0:
+        random_samples = np.random.uniform(BOUNDS[0], BOUNDS[1], size=(remaining, len(PARAMETERS)))
+        all_samples = np.vstack([scaled_samples, corners, random_samples])
+    else:
+        all_samples = np.vstack([scaled_samples, corners])
+    return all_samples[:n]  # Ensure we only return n samples

@@ -1,4 +1,5 @@
-from ..lnl_computer import LnLComputer, Observation
+from ..lnl_computer import LnLComputer
+from ..observation import load_observation
 import click
 
 
@@ -15,7 +16,7 @@ def main(observation_file, compas_h5, params):
     :param params: String of parameters in the format "alp:0.5 sig:0.3 sfA:1.0 sfD:2.0"
     """
     if params is None:
-        obs = Observation.from_ilya(observation_file)
+        obs = load_observation(observation_file)
         params = obs.params
     else:
         params = paramstr_to_param(params)

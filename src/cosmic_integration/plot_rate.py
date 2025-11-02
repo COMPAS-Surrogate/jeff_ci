@@ -1,12 +1,7 @@
 import os
-
-import numpy as np
-import matplotlib.pyplot as plt
-from .ratesSampler import MakeChirpMassBins, REDSHIFT_STEP, MAX_DETECTION_REDSHIFT, MAX_CHIRPMASS
-from .utils import read_output, _param_str, _param_latex
-import click
 from typing import List, Optional
 
+import click
 import matplotlib.pyplot as plt
 import numpy as np
 from colormath.color_conversions import convert_color
@@ -19,6 +14,14 @@ from matplotlib.colors import (
 )
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter
+
+from .ratesSampler.binned_cosmic_integrator import (
+    MakeChirpMassBins,
+    MAX_CHIRPMASS,
+    MAX_DETECTION_REDSHIFT,
+    REDSHIFT_STEP,
+)
+from .utils import _param_latex, _param_str, read_output
 
 
 
@@ -162,7 +165,7 @@ def plot_matrix(
     if n_events is None:
         n_events = np.nansum(matrix)
     ax.annotate(
-        f"Grid: {matrix.T.shape}\nN det: {n_events:.2f}/yr",
+        f"Grid: {matrix.T.shape}\nSum(matrix): {n_events:.2f}",
         xy=(1, 0),
         xycoords="axes fraction",
         xytext=(-5, 5),

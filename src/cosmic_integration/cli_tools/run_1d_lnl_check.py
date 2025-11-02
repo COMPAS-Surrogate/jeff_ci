@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 import h5py
 
 from ..lnl_computer import LnLComputer
-from ..ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
 
 
 
@@ -67,6 +67,7 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
         sfr_d=(min(SFR_D_VALUES), max(SFR_D_VALUES))
     )
 
+    # Computes LnL for one parameter at a time, varying only the selected parameter (param) across its range while keeping the other parameters fixed at their "true" values from lnl_computer.observation.param_dict.
     param_lnls = {}
     for param, (min_val, max_val) in param_ranges.items():
         p_vals = np.linspace(min_val, max_val, n)
@@ -90,6 +91,22 @@ def run_1d_lnl_check(observation_fpath, compas_h5_fpath, n, outdir, true_params)
     plt.savefig(f"{outdir}/lnl_1d.png")
 
 
+
+    # Get the maxL param
+    max_lnl = -np.inf
+    max_params = None
+    for param, data in param_lnls.items():
+        idx = np.argmax(data["lnl"])
+        if data["lnl"][idx] > max_lnl:
+            max_lnl = data["lnl"][idx]
+            max_params = {param: data[param][idx]}
+    print(f"Max LnL: {max_lnl} at params: {max_params}")
+
+    # plot the maxL params
+    lnl_computer.plot(
+        params={**lnl_computer.observation.param_dict, **max_params},  # type: ignore
+        outdir=outdir
+    )
 
 
 

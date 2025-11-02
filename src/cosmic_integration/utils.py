@@ -40,7 +40,7 @@ def _param_str(params: List[float]) -> str:
     """
     Convert a list of parameters to a string for the filename.
     """
-    param_names = ['alp', 'sig', 'sfA', 'sfD']
+    param_names = ['alpha', 'sigma', 'sfr_a', 'sfr_d']
     return "_".join([f"{p}{v:.3f}" for p,v in zip(param_names, params)])
 
 def _param_latex(params: List[float]) -> str:
