@@ -95,12 +95,22 @@ def _fmt_ax(ax, bounds=None):
 
 
 def _get_norm(x):
-    log_x = np.log(x)
+    data = np.asarray(x, dtype=float)
+    finite_mask = np.isfinite(data) & (data > 0)
+    if not np.any(finite_mask):
+        return LogNorm(vmin=0.1, vmax=1)
+
+    clipped = data.copy()
+    if np.any(~finite_mask):
+        eps = np.nanmin(clipped[finite_mask]) * 1e-6
+        eps = eps if eps > 0 else 1e-6
+        clipped[~finite_mask] = eps
+
+    log_x = np.log(clipped)
     log_x = log_x[np.isfinite(log_x)]
     if len(log_x) == 0:
         return LogNorm(vmin=0.1, vmax=1)
-    vmin, vmax = np.exp(log_x.min()), x.max()
-    # return LogNorm(vmin=np.exp(log_x.min()), vmax=x.max())
+    vmin, vmax = np.exp(log_x.min()), clipped.max()
     return PowerNorm(gamma=0.3, vmin=vmin / 10, vmax=vmax * 3)
 
 

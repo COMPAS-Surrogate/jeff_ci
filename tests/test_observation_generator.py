@@ -1,5 +1,5 @@
 from cosmic_integration.observation.mock_observation import MockObservation
-from cosmic_integration.ratesSampler import CosmicIntegration
+from cosmic_integration.ratesSampler import BinnedCosmicIntegrator, CosmicIntegration
 from cosmic_integration.ratesSampler.ratesSampler import DEFAULT_PARAMS
 import os
 import pytest
@@ -28,21 +28,22 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
         p_SFRa=DEFAULT_PARAMS[2],
         p_SFRd=DEFAULT_PARAMS[3],
     )
-    rates, chirp_masses = ci.FindDetectionRate(**params)
-    # expected n-detections
-    print(f"Expected detections: {np.sum(rates):.2f}")
+    rates, _ = ci.FindDetectionRate(**params)
+
+    bci = BinnedCosmicIntegrator.from_compas_h5(*os.path.split(test_compas_h5))
+    binned_rates = bci.FindBinnedDetectionRate(**params)
+    print(f"Expected detections: {np.sum(binned_rates):.2f}")
 
     duration  = 1
     fname = f"{outdir}/mock_observation.h5"
     params = np.array(list(params.values()))
 
     obs = MockObservation.generate_from_rates(
-        rates=rates,
-        chirp_masses=chirp_masses,
+        rates=binned_rates,
         output_file=f"{outdir}/mock_observation.h5",
         duration=duration,
         params=params,
-        measurement_uncertainty=False
+        measurement_uncertainty=False,
     )
     obs.plot(fname=f"{outdir}/mock_observation_no_uncertainty.png")
 
@@ -58,5 +59,4 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     #
     # obs.plot_event_summaries(fname=f"{outdir}/mock_observation_event_summaries.png")
     # obs.plot(fname=f"{outdir}/mock_observation.png")
-
 

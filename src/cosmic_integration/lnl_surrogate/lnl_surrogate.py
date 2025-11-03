@@ -41,7 +41,7 @@ class LnLSurrogate(Likelihood):
             truth: np.ndarray = None,  # True minima for helping with visualization
             inital_samples: np.ndarray = None,  # Initial samples for the active learner
             initial_lnls: np.ndarray = None,  # Initial log likelihoods for the active learner
-            reject_bad_points: bool = True,  # Enable rejection of really bad likelihood points
+            reject_bad_points: bool = False,  # Disable rejection for broader coverage by default
     ) -> "LnLSurrogate":
         """
         Train the LnLSurrogate model.

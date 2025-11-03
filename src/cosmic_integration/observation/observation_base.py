@@ -243,33 +243,92 @@ class ObservationBase(abc.ABC):
 
     def summary(self) -> str:
         """Return a summary string of the MockObservation."""
-        summary_str = (
-            f"MockObservation Summary:\n"
-            f"  Number of events: {self.n_events}\n"
-            f"  Number of MC bins: {len(self.mc_bin_edges)}\n"
-            f"  Number of Z bins: {len(self.z_bin_edges)}\n"
-            f"  Population weights shape: {self.population_weights.shape}\n"
-            f"  MC prior sum: {np.sum(self.mc_prior)}\n"
-            f"  Z prior sum: {np.sum(self.z_prior)}\n"
-        )
+        def _fmt(value):
+            if isinstance(value, str):
+                return value
+            return f"{value:.3f}"
+
+        mc_bins = self.population_weights.shape[1]
+        z_bins = self.population_weights.shape[2]
+
+        mc_edges = np.asarray(self.mc_bin_edges) if self.mc_bin_edges is not None else None
+        z_edges = np.asarray(self.z_bin_edges) if self.z_bin_edges is not None else None
+
+        mc_edge_count = len(mc_edges) if mc_edges is not None else "NA"
+        z_edge_count = len(z_edges) if z_edges is not None else "NA"
+
+        def _mc_integral():
+            if self.mc_prior is None:
+                return "NA"
+            mc_prior = np.asarray(self.mc_prior, dtype=float)
+            mc_widths = None
+            if self.mc_bin_widths is not None:
+                mc_widths = np.asarray(self.mc_bin_widths, dtype=float)
+            elif mc_edges is not None and mc_edges.size > 0:
+                left = np.concatenate(([0.0], mc_edges[:-1]))
+                mc_widths = mc_edges - left
+            if mc_widths is None:
+                return float(np.sum(mc_prior))
+            if mc_widths.shape[0] < mc_prior.shape[0]:
+                pad = mc_prior.shape[0] - mc_widths.shape[0]
+                mc_widths = np.concatenate([mc_widths, np.full(pad, mc_widths[-1])])
+            elif mc_widths.shape[0] > mc_prior.shape[0]:
+                mc_widths = mc_widths[:mc_prior.shape[0]]
+            return float(np.sum(mc_prior * mc_widths))
+
+        def _z_integral():
+            if self.z_prior is None:
+                return "NA"
+            z_prior = np.asarray(self.z_prior, dtype=float)
+            if z_edges is None or z_edges.size == 0:
+                return float(np.sum(z_prior))
+            if z_edges.size == 1:
+                widths = np.array([0.1], dtype=float)
+            else:
+                last_step = z_edges[-1] - z_edges[-2]
+                widths = np.diff(np.concatenate([z_edges, [z_edges[-1] + last_step]]))
+            if widths.shape[0] < z_prior.shape[0]:
+                pad = z_prior.shape[0] - widths.shape[0]
+                widths = np.concatenate([widths, np.full(pad, widths[-1])])
+            elif widths.shape[0] > z_prior.shape[0]:
+                widths = widths[:z_prior.shape[0]]
+            return float(np.sum(z_prior * widths))
+
+        lines = [
+            "MockObservation Summary:",
+            f"  Number of events: {self.n_events}",
+            f"  Population weights shape: {self.population_weights.shape}",
+            f"  MC bins (weights): {mc_bins}; stored edge count: {mc_edge_count}",
+            f"  Z bins (weights): {z_bins}; stored edge count: {z_edge_count}",
+            f"  MC prior integral: {_fmt(_mc_integral())}",
+            f"  Z prior integral: {_fmt(_z_integral())}",
+        ]
+
         if self.params is not None:
-            summary_str += (
-                f"  Model Parameters:\n"
-                f"    alpha: {self.params[0]}\n"
-                f"    sigma: {self.params[1]}\n"
-                f"    sfr_a: {self.params[2]}\n"
-                f"    sfr_d: {self.params[3]}\n"
+            lines.extend(
+                [
+                    "  Model Parameters:",
+                    f"    alpha: {self.params[0]}",
+                    f"    sigma: {self.params[1]}",
+                    f"    sfr_a: {self.params[2]}",
+                    f"    sfr_d: {self.params[3]}",
+                ]
             )
 
-        # table of z, mc quantiles
-        if self.posterior_quantiles is not None:
-            summary_str += "  Posterior Quantiles :\n"
+        summary_str = "\n".join(lines)
+
+        if self.posterior_quantiles is not None and len(self.posterior_quantiles) > 0:
+            max_rows = min(5, self.posterior_quantiles.shape[0])
+            summary_str += "\n  Posterior Quantiles (first %d events):\n" % max_rows
             summary_str += "    Event |   z +/- 95%   |  Mc +/- 95% \n"
             summary_str += "    -----------------------------------------------\n"
-            for i in range(self.n_events):
+            for i in range(max_rows):
                 z_q = self.posterior_quantiles[i, 0]
                 mc_q = self.posterior_quantiles[i, 1]
                 z_err = (z_q[2] - z_q[0]) / 2
                 mc_err = (mc_q[2] - mc_q[0]) / 2
                 summary_str += f"    {i+1:5d} | {z_q[1]:.3f} +/- {z_err:.3f} | {mc_q[1]:.2f} +/- {mc_err:.2f}\n"
+            if self.posterior_quantiles.shape[0] > max_rows:
+                summary_str += f"    ... ({self.posterior_quantiles.shape[0]} events total)\n"
+
         return summary_str

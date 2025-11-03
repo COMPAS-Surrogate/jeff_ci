@@ -123,26 +123,30 @@ class ActiveLearner:
         def build_model(data: Dataset) -> gpflow.models.GPR:
             noise = 1e-5
 
-            # Start with just a single Matern52 kernel (most common choice)
+            # Set ARD lengthscales proportional to parameter widths to respect units
+            widths = (self.bounds[1] - self.bounds[0]).astype(np.float64)
+            # Start around ~30% of each dimension's width (heuristic)
+            init_ls = np.clip(0.3 * widths, 1e-6, np.inf)
+
             kernel = gpflow.kernels.Matern52(
                 variance=np.float64(1.0),
-                lengthscales=np.array([0.2] * self.dim, dtype=np.float64)
+                lengthscales=init_ls,
             )
 
-            # Basic priors
-            prior_scale = tf.constant(1.0, dtype=tf.float64)
+            # LogNormal priors centered on initial values for stability
+            prior_scale = tf.constant(0.75, dtype=tf.float64)
             kernel.variance.prior = tfp.distributions.LogNormal(
-                tf.constant(-2.0, dtype=tf.float64), prior_scale
+                tf.constant(-1.0, dtype=tf.float64), prior_scale
             )
             kernel.lengthscales.prior = tfp.distributions.LogNormal(
-                tf.math.log(kernel.lengthscales), prior_scale
+                tf.math.log(tf.convert_to_tensor(init_ls, dtype=tf.float64)), prior_scale
             )
 
-            # Standard Gaussian likelihood
+            # Standard Gaussian likelihood with tiny jitter (deterministic objective)
             model = gpflow.models.GPR(
                 data=data.astuple(),
                 kernel=kernel,
-                noise_variance=noise
+                noise_variance=noise,
             )
             return model
 
@@ -363,6 +367,13 @@ class ActiveLearner:
         plot_dir = os.path.join(self.outdir, "plots")
         os.makedirs(plot_dir, exist_ok=True)
         fname = os.path.join(plot_dir, f"diagnostics_round_{round_idx}.png")
+        # If truth is available, compute f(x_true) in the same objective space
+        true_fx = None
+        if self.true_minima is not None:
+            try:
+                true_fx = float(self.trainable_function(*self.true_minima))
+            except Exception:
+                true_fx = None
         plot_diagnostics(
             all_obs=self.current_dataset.observations.numpy(),
             history_best=self.history_best,
@@ -371,6 +382,7 @@ class ActiveLearner:
             bounds=self.bounds,
             labels=['alpha', 'sigma', 'sfr_a', 'sfr_d'],
             true_minima=self.true_minima,
+            true_fx=true_fx,
             fname=fname,
         )
 

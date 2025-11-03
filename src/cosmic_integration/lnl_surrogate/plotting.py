@@ -265,6 +265,7 @@ def plot_diagnostics(all_obs,
                      bounds,
                      labels=None,
                      true_minima=None,
+                     true_fx=None,
                      fname="diagnostics.png",
                      figsize=(14, 16)):
     """
@@ -301,6 +302,9 @@ def plot_diagnostics(all_obs,
     # Regret curve
     x_axis = np.arange(len(history_best))
     axs[0, 0].plot(x_axis, history_best, marker="o", linewidth=1.25)
+    if true_fx is not None:
+        axs[0, 0].axhline(true_fx, color='red', linestyle='--', linewidth=1.5, label='f(x_true)')
+        axs[0, 0].legend(fontsize=9, loc='best')
     axs[0, 0].set_title("Best Observed Value vs. Step")
     axs[0, 0].set_xlabel("Step")
     axs[0, 0].set_ylabel("Best f(x)")

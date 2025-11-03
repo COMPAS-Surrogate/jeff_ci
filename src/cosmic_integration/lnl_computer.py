@@ -47,21 +47,24 @@ def ln_mcz_grid_likelihood_weights(
     n_events, n_mc_bins, n_z_bins = obs_weights.shape
 
     p_events = np.zeros(n_events)  # Initialize an array to store the probabilities for each event
+    eps = 1e-300  # numerical floor to avoid log(0)
     for event_idx in range(n_events):
         w = obs_weights[event_idx, :, :]
         # normalize the weights for this event
         w = w / np.nansum(w) if np.nansum(w) > 0 else np.zeros_like(w)
         p_event = np.nansum(w * model_prob_grid)
+        if not np.isfinite(p_event) or p_event <= 0:
+            p_event = eps
         p_events[event_idx] = p_event
 
-    return np.nansum(np.log(p_events))
+    return np.nansum(np.log(np.clip(p_events, eps, None)))
 
 
 
 
 def core_ln_likelihood(
         model_matrix: np.ndarray,
-        duration: float, # in years
+        duration: float,  # in years
         obs_weights: np.ndarray = None
 ) -> float:
     """
@@ -76,20 +79,22 @@ def core_ln_likelihood(
         return [lnl, poisson_lnl, mcz_lnl, model_n_detections]
 
     """
+    if obs_weights is None:
+        raise ValueError("obs_weights must be provided to compute the likelihood.")
 
-    # scale the model matrix by the duration (atm duartion is 1 year)
-    model_matrix = model_matrix * duration
-
+    # scale the model matrix by the duration (expected detections per bin)
+    model_counts = np.asarray(model_matrix, dtype=float) * duration
 
     # unpack the model into the grid and the number of detections
     n_obs = obs_weights.shape[0]  # number of events
+    model_n_obs = float(np.nansum(model_counts))
+    if model_n_obs <= 0.0:
+        return -np.inf
 
-    model_n_obs = np.nansum(model_matrix)
-
-    # compute the likelihood
+    # compute the likelihood with a Poisson count term and per-event MC/Z probabilities
     poisson_lnl = ln_poisson_likelihood(n_obs, model_n_obs)
-
-    mcz_lnl = ln_mcz_grid_likelihood_weights(obs_weights, model_matrix)
+    model_prob_grid = model_counts / model_n_obs
+    mcz_lnl = ln_mcz_grid_likelihood_weights(obs_weights, model_prob_grid)
     lnl = poisson_lnl + mcz_lnl
     return float(lnl)
 
@@ -122,6 +127,13 @@ class LnLComputer:
             p_SFRa=sfr_a,
             p_SFRd=sfr_d
         )
+
+        # Validate shapes match the observation grid
+        if model_matrix.shape != self.observation.population_weights.shape[1:]:
+            raise ValueError(
+                f"Model grid shape {model_matrix.shape} does not match observation weights "
+                f"shape {self.observation.population_weights.shape[1:]}. Check bin edges/config."
+            )
 
         # Compute the log likelihood
         lnl = core_ln_likelihood(
@@ -220,9 +232,7 @@ class LnLComputer:
             lnl = core_ln_likelihood(
                 model_matrix=matrix,
                 duration=self.observation.duration,
-                obs_weights=self.observation.weights
+                obs_weights=self.observation.population_weights
             )
             lnls.append(np.array([lnl, *param]).flatten())
         return np.array(lnls)
-
-

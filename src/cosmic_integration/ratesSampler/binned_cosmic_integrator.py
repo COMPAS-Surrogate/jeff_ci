@@ -29,13 +29,12 @@ class BinnedCosmicIntegrator(CosmicIntegration):
         numRows = detectionRate.shape[1]
         numColumns = detectionRate.shape[0]
 
-        # bin the detection rates
+        # bin the detection rates deterministically by chirp-mass column
         binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
-        for Mc in range(numColumns):
-            c = np.random.randint(0, numColumns) #TODO: why is this random?
-            McBin = ChirpMassBin(chirpMasses[c], p_ChirpMassBins)
-            for zBin in range(numRows):
-                binnedDetectionRate[McBin][zBin] += detectionRate[c][zBin]
+        for col_idx in range(numColumns):
+            McBin = ChirpMassBin(chirpMasses[col_idx], p_ChirpMassBins)
+            # Accumulate the detection rate across redshift bins for this chirp-mass column
+            binnedDetectionRate[McBin, :] += detectionRate[col_idx, :]
 
         return binnedDetectionRate
 
