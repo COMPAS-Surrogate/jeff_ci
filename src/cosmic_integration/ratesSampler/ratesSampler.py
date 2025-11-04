@@ -40,6 +40,7 @@ import argparse
 import time
 from tqdm.auto import tqdm
 
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 # defaults
@@ -920,36 +921,36 @@ class CosmicIntegration:
                                  p_ETAstep = ETA_STEP,
                                  p_SNRstep = SNR_STEP):
 
-        # by default, set detection probability to one
-        detectionProbability = np.ones(shape=(p_nBinaries, p_nRedshiftsDetection))
+        p_Mc = np.asarray(p_Mc, dtype=float)
+        p_ETA = np.asarray(p_ETA, dtype=float)
+        redshifts = np.asarray(p_Redshifts[:p_nRedshiftsDetection], dtype=float)
+        distances = np.asarray(p_Distances[:p_nRedshiftsDetection], dtype=float)
 
-        # for each binary in the COMPAS file
-        for i in range(p_nBinaries):
-            # shift frames for the chirp mass
-            McShifted = p_Mc[i] * (1 + p_Redshifts[:p_nRedshiftsDetection])
+        snr_grid = np.asarray(p_SNRgridAt1Mpc, dtype=float)
+        det_prob_grid = np.asarray(p_DetectionProbabilityFromSNR, dtype=float)
 
-            # work out the closest index to the given values of eta and Mc
-            etaIndex = np.round(p_ETA[i] / p_ETAstep).astype(int) - 1
-            McIndex  = np.round(McShifted / p_McStep).astype(int) - 1
+        eta_index = np.round(p_ETA / p_ETAstep).astype(np.int64) - 1
+        eta_index = np.clip(eta_index, 0, snr_grid.shape[0] - 1)
 
-            # lookup values for the snr (but make sure you don't go over the top of the array)
-            SNRs             = np.ones(p_nRedshiftsDetection) * 0.00001
-            McBelowMax       = McIndex < p_SNRgridAt1Mpc.shape[1]
-            SNRs[McBelowMax] = p_SNRgridAt1Mpc[etaIndex, McIndex[McBelowMax]]
+        mc_shifted = p_Mc[:, None] * (1.0 + redshifts[None, :])
+        mc_index = np.round(mc_shifted / p_McStep).astype(np.int64) - 1
+        valid_mc = (mc_index >= 0) & (mc_index < snr_grid.shape[1])
+        mc_index_clipped = np.clip(mc_index, 0, snr_grid.shape[1] - 1)
 
-            # convert these snr values to the correct distances
-            SNRs = SNRs / p_Distances[:p_nRedshiftsDetection]
+        snr = np.full_like(mc_shifted, 1.0e-5, dtype=float)
+        gathered_snr = snr_grid[eta_index[:, None], mc_index_clipped]
+        snr[valid_mc] = gathered_snr[valid_mc]
+        snr = snr / distances[None, :]
 
-            # lookup values for the detection probability (but make sure you don't go over the top of the array)
-            detectionListIndex = np.round(SNRs / p_SNRstep).astype(int) - 1
-            SNRbelowMax = detectionListIndex < len(p_DetectionProbabilityFromSNR)
-            SNRbelowMin = detectionListIndex < 0
+        det_index = np.round(snr / p_SNRstep).astype(np.int64) - 1
+        det_index_clipped = np.clip(det_index, 0, det_prob_grid.shape[0] - 1)
 
-            # remember we set probability = 1 by default? Because if we don't set it here, we have snr > max snr
-            # which is 1000 by default, meaning very detectable
-            detectionProbability[i, SNRbelowMax] = p_DetectionProbabilityFromSNR[detectionListIndex[SNRbelowMax]]
-            #on the other hand, if SNR is too low, the detection probability is effectively zero
-            detectionProbability[i, SNRbelowMin] = 0
+        detectionProbability = np.ones_like(snr, dtype=float)
+        valid_det = (det_index >= 0) & (det_index < det_prob_grid.shape[0])
+        below_min = det_index < 0
+
+        detectionProbability[below_min] = 0.0
+        detectionProbability[valid_det] = det_prob_grid[det_index_clipped[valid_det]]
 
         return detectionProbability
 
@@ -1050,7 +1051,7 @@ class CosmicIntegration:
             p_SE=SE,
             p_MaxRedshift=MAX_FORMATION_REDSHIFT,
             p_MaxRedshiftDetection=MAX_DETECTION_REDSHIFT,
-            p_RedshiftStep=REDSHIFT_STEP
+            p_RedshiftStep=REDSHIFT_STEP,
         )
 
 
