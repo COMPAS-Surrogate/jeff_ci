@@ -59,7 +59,7 @@ def main(compas_h5, observation_file, model_cache, outdir, ):
         truth=observation.params,
         inital_samples=top_params,
         initial_lnls=top_lnls,
-        reject_bad_points=True,  # Enable rejection of really bad points
+        scaler_lower_clip_percentile=5.0,
     )
 
     lnl_surrogate.parameters = observation.param_dict

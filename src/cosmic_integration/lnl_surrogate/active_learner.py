@@ -133,6 +133,9 @@ class ActiveLearner:
                 lengthscales=init_ls,
             )
 
+            mean_init = np.float64(np.mean(data.observations.numpy()))
+            mean_function = gpflow.mean_functions.Constant(mean_init)
+
             # LogNormal priors centered on initial values for stability
             prior_scale = tf.constant(0.75, dtype=tf.float64)
             kernel.variance.prior = tfp.distributions.LogNormal(
@@ -147,6 +150,7 @@ class ActiveLearner:
                 data=data.astuple(),
                 kernel=kernel,
                 noise_variance=noise,
+                mean_function=mean_function,
             )
             return model
 

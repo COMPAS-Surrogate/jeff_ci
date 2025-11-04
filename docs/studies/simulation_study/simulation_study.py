@@ -44,14 +44,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate, PARAMETERS
+from cosmic_integration.lnl_surrogate.lnl_surrogate import LnLSurrogate, PARAMETERS, BOUNDS
+from cosmic_integration.lnl_surrogate.offline_diagnostics import offline_surrogate_diagnostics
 from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 from cosmic_integration.observation import load_observation
 from cosmic_integration.observation.mock_observation import MockObservation
@@ -89,6 +91,22 @@ QUICK_ACTIVE_LEARNING_STEPS_PER_ROUND = 10
 
 MCMC_DEFAULT_SETTINGS = {"nwalkers": 48, "iterations": 3000}
 MCMC_QUICK_SETTINGS = {"nwalkers": 24, "iterations": 3000}
+
+# Surrogate scaler defaults
+SCALER_SOFT_CLIPPING = True
+SCALER_CLIP_FACTOR = 5.0
+SCALER_LOWER_CLIP_PERCENTILE = "auto"
+
+SCALER_TRAIN_KWARGS = {
+    "scaler_soft_clipping": SCALER_SOFT_CLIPPING,
+    "scaler_clip_factor": SCALER_CLIP_FACTOR,
+    "scaler_lower_clip_percentile": SCALER_LOWER_CLIP_PERCENTILE,
+}
+
+OFFLINE_BASELINE_ROUND_TOTALS = [200, 400, 600]
+OFFLINE_BASELINE_TRAIN = OFFLINE_BASELINE_ROUND_TOTALS[-1]
+OFFLINE_BASELINE_TEST = 400
+OFFLINE_BASELINE_MCMC_KWARGS = {"nwalkers": 16, "iterations": 1000}
 
 # Randomness control
 SEED = int(os.environ.get("SIM_STUDY_SEED", 20240623))
@@ -228,13 +246,8 @@ def _evaluate_lnl(observation, test_params: np.ndarray) -> float:
     return np.sum(data * np.log(model) - model)
 
 
-def _lnl_1d_scan(observation, output_dir: Path) -> None:
+def _lnl_1d_scan(lnl_computer: LnLComputer, output_dir: Path) -> None:
     """Compute and plot LnL as a function of each parameter around truth."""
-
-    _lnl_comptuer = LnLComputer.load(
-        observation_file=str(observation),
-        compas_h5=str(_compas_catalogue()),
-    )
 
     param_names = PARAMETERS
     fid = FIDUCIAL_PARAMS
@@ -250,7 +263,7 @@ def _lnl_1d_scan(observation, output_dir: Path) -> None:
         for val in xvals:
             test_params = fid.copy()
             test_params[i] = val
-            _lnl = _lnl_comptuer(
+            _lnl = lnl_computer(
                 alpha=float(test_params[0]),
                 sigma=float(test_params[1]),
                 sfr_a=float(test_params[2]),
@@ -322,7 +335,7 @@ def _train_surrogate(
         total_steps=total_steps,
         steps_per_round=steps_per_round,
         truth=FIDUCIAL_PARAMS,
-
+        **SCALER_TRAIN_KWARGS,
     )
 
     logger.info("Active learning completed. Artefacts stored in %s", analysis_dir)
@@ -354,8 +367,17 @@ def _plot_gp_vs_true_1d(analysis_dir: Path) -> None:
     fid = np.array(payload.get("fiducial", FIDUCIAL_PARAMS), dtype=float)
     curves = payload.get("curves", [])
 
-    fig, axes = plt.subplots(4, 1, figsize=(6, 9))
-    for ax, curve in zip(axes, curves):
+    if not curves:
+        return
+
+    n_params = len(curves)
+    fig, axes = plt.subplots(n_params, 2, figsize=(10, 2.6 * n_params))
+    if axes.ndim == 1:
+        axes = axes.reshape(n_params, 1)
+
+    scaler = surrogate.scaler
+
+    for row_idx, curve in enumerate(curves):
         pname = curve["param"]
         xvals = np.array(curve["x"], dtype=float)
         true_y = np.array(curve["lnl"], dtype=float)
@@ -371,19 +393,109 @@ def _plot_gp_vs_true_1d(analysis_dir: Path) -> None:
             preds = preds_tf.numpy().reshape(-1)
             transformed = -preds
             gp_y = np.array([surrogate.scaler.inverse_transform(v) for v in transformed])
+            true_transformed = np.array([surrogate.scaler.transform(v) for v in true_y])
+            gp_transformed = transformed
         except Exception:
             gp_y = np.full_like(xvals, np.nan, dtype=float)
+            true_transformed = np.full_like(xvals, np.nan, dtype=float)
+            gp_transformed = np.full_like(xvals, np.nan, dtype=float)
 
-        ax.plot(xvals, true_y, label="True LnL", color="C0")
-        ax.plot(xvals, gp_y, label="GP pred", color="C1", linestyle="--")
-        ax.axvline(fid[idx], color="r", ls="--", alpha=0.7)
-        ax.set_xlabel(pname)
-        ax.set_ylabel("LnL")
-        ax.legend(loc="best", fontsize=8)
+        ax_lnl = axes[row_idx, 0]
+        ax_lnl.plot(xvals, true_y, label="True LnL", color="C0")
+        ax_lnl.plot(xvals, gp_y, label="GP pred", color="C1", linestyle="--")
+        ax_lnl.axvline(fid[idx], color="r", ls="--", alpha=0.7)
+        ax_lnl.set_xlabel(pname)
+        ax_lnl.set_ylabel("LnL")
+        ax_lnl.legend(loc="best", fontsize=8)
 
-    fig.tight_layout()
+        ax_trans = axes[row_idx, 1]
+        ax_trans.plot(xvals, true_transformed, label="True (scaled)", color="C2")
+        ax_trans.plot(xvals, gp_transformed, label="GP pred (scaled)", color="C3", linestyle="--")
+        ax_trans.axvline(fid[idx], color="r", ls="--", alpha=0.7)
+        ax_trans.set_xlabel(pname)
+        ax_trans.set_ylabel("Scaled LnL")
+        ax_trans.legend(loc="best", fontsize=8)
+
+    lower_clip = getattr(surrogate.scaler, "lower_clip_value", None)
+    lower_clip_txt = f"{lower_clip:.1f}" if lower_clip is not None else "none"
+    clip_txt = (
+        f"{getattr(scaler, 'clip_factor', np.nan):.1f}"
+        if getattr(scaler, "soft_clipping", False)
+        else "off"
+    )
+    scaler_summary = (
+        f"Scaler stats → reference={scaler.reference_value:.2f}, "
+        f"median={scaler.median:.2f}, scale={scaler.scale:.2f}, "
+        f"soft_clip={clip_txt}, lower_clip={lower_clip_txt}"
+    )
+    fig.suptitle(scaler_summary, fontsize=11)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
     fig.savefig(analysis_dir / "lnl_1d_gp_vs_true.png", dpi=200)
     plt.close(fig)
+
+
+def _offline_baseline_diagnostics(
+    analysis_dir: Path,
+    lnl_computer: LnLComputer,
+    *,
+    force: bool,
+    seed: int,
+    truths: Dict[str, float],
+) -> None:
+    diag_dir = analysis_dir / "offline_baseline"
+    metrics_path = diag_dir / "metrics.json"
+    if metrics_path.exists() and not force:
+        return
+
+    if force and diag_dir.exists():
+        shutil.rmtree(diag_dir)
+    diag_dir.mkdir(parents=True, exist_ok=True)
+
+    result = offline_surrogate_diagnostics(
+        evaluator=lambda params: lnl_computer(*params),
+        bounds=BOUNDS,
+        n_train=OFFLINE_BASELINE_TRAIN,
+        n_test=OFFLINE_BASELINE_TEST,
+        round_totals=OFFLINE_BASELINE_ROUND_TOTALS,
+        seed=seed,
+        scaler_kwargs={
+            "soft_clipping": SCALER_SOFT_CLIPPING,
+            "clip_factor": SCALER_CLIP_FACTOR,
+            "lower_clip_percentile": SCALER_LOWER_CLIP_PERCENTILE,
+        },
+        outdir=diag_dir,
+        truths=truths,
+        mcmc_kwargs=OFFLINE_BASELINE_MCMC_KWARGS,
+        param_labels=PARAMETERS,
+        corner_temperature=500.0,
+    )
+
+    metrics_payload = {
+        "rounds": [
+            {
+                "round_index": round_result.round_index,
+                "n_train": round_result.n_train,
+                **round_result.metrics,
+                "scatter_path": str(round_result.scatter_path) if round_result.scatter_path else None,
+                "residual_path": str(round_result.residual_path) if round_result.residual_path else None,
+                "model_dir": str(round_result.model_dir) if round_result.model_dir else None,
+                "sampler_dir": str(round_result.sampler_dir) if round_result.sampler_dir else None,
+            }
+            for round_result in result.rounds
+        ],
+        "round_totals": OFFLINE_BASELINE_ROUND_TOTALS,
+        "n_test": OFFLINE_BASELINE_TEST,
+    }
+    metrics_path.write_text(json.dumps(metrics_payload, indent=2), encoding="utf-8")
+
+    np.savez(
+        diag_dir / "offline_samples.npz",
+        train_points=result.final_train_points,
+        train_lnls=result.final_train_lnls,
+        test_points=result.test_points,
+        test_lnls=result.test_lnls,
+        predicted_lnls=result.final_predictions,
+    )
 
 
 def _run_mcmc_and_plots(
@@ -460,7 +572,7 @@ def run(force: bool = False, quick: bool = False, with_noise: bool = False) -> S
     settings = _resolve_settings(quick)
     rng = _rng(settings["seed"])
 
-    observation, obs_fn = _generate_catalogue(
+    _, obs_fn = _generate_catalogue(
         artifacts,
         duration=SUBSET_DURATION_YEARS,
         posterior_samples=settings["posterior_samples_per_event"],
@@ -469,7 +581,22 @@ def run(force: bool = False, quick: bool = False, with_noise: bool = False) -> S
         rng=rng,
     )
 
-    _lnl_1d_scan(obs_fn, artifacts.analysis_dir)
+    lnl_computer = LnLComputer.load(
+        observation_file=str(obs_fn),
+        compas_h5=str(_compas_catalogue()),
+    )
+
+    truths_dict = {p: float(v) for p, v in zip(PARAMETERS, FIDUCIAL_PARAMS)}
+
+    # _lnl_1d_scan(lnl_computer, artifacts.analysis_dir)
+
+    _offline_baseline_diagnostics(
+        artifacts.analysis_dir,
+        lnl_computer,
+        force=force,
+        seed=settings["seed"],
+        truths=truths_dict,
+    )
 
     _train_surrogate(
         artifacts,
@@ -483,7 +610,6 @@ def run(force: bool = False, quick: bool = False, with_noise: bool = False) -> S
     # Compare GP predictions against the precomputed 1D LnL scans
     _plot_gp_vs_true_1d(artifacts.analysis_dir)
 
-    truths_dict = {p: float(v) for p, v in zip(PARAMETERS, FIDUCIAL_PARAMS)}
     _run_mcmc_and_plots(
         artifacts,
         mcmc_settings=dict(settings["mcmc_settings"]),
