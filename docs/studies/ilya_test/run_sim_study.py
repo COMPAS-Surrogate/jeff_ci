@@ -51,6 +51,8 @@ print(f"Best log likelihood: {best_lnl:.2f} (this will be the reference for norm
 threshold_lnl = -(worst_lnl - best_lnl)
 print(f"Threshold log likelihood: {threshold_lnl:.2f}")
 
+threshold_lnl = 10000
+
 
 # lnl at true
 lnl_at_true = lnl_computer(*observation.params)

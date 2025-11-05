@@ -39,9 +39,10 @@ lnl, params = lnls[:, 0], lnls[:, 1:]
 print(f"Computed {len(lnls)} log likelihoods from cache.")
 
 # filter out to only keep top 200 log likelihoods + params
-top_indices = lnl.argsort()[-200:][::-1]
+top_indices = lnl.argsort()[-50:][::-1]
 top_lnls = lnl[top_indices]
 top_params = params[top_indices]
+
 
 best_lnl = top_lnls.max()
 worst_lnl = top_lnls.min()
@@ -61,8 +62,8 @@ lnl_surrogate = LnLSurrogate.train(
     compas_h5=COMPAS_H5,
     outdir=OUTDIR,
     initial_points=50,
-    total_steps=3,
-    steps_per_round=3,
+    total_steps=120,
+    steps_per_round=30,
     truth=observation.params,
     inital_samples=top_params,  # Initial samples
     initial_lnls=top_lnls,  # Initial log likelihoods

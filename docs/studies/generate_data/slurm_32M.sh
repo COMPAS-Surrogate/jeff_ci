@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=generate_jeff_data
-#SBATCH --output=generate_jeff_data%j.out
-#SBATCH --error=generate_jeff_data%j.err
+#SBATCH --output=32M_data%j.out
+#SBATCH --error=32M_data%j.err
 #SBATCH --time=50:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
