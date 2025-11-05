@@ -89,8 +89,8 @@ QUICK_ACTIVE_LEARNING_INITIAL_POINTS = 20
 QUICK_ACTIVE_LEARNING_TOTAL_STEPS = 80
 QUICK_ACTIVE_LEARNING_STEPS_PER_ROUND = 10
 
-MCMC_DEFAULT_SETTINGS = {"nwalkers": 48, "iterations": 3000}
-MCMC_QUICK_SETTINGS = {"nwalkers": 24, "iterations": 3000}
+MCMC_DEFAULT_SETTINGS = {"nwalkers": 48, "iterations": 6000, "nburn": 2000}
+MCMC_QUICK_SETTINGS = {"nwalkers": 24, "iterations": 4000, "nburn": 1000}
 
 # Surrogate scaler defaults
 SCALER_SOFT_CLIPPING = True
@@ -513,13 +513,19 @@ def _run_mcmc_and_plots(
         return
 
     mcmc_dir = analysis_dir / "MCMC"
-    result = sample_lnl_surrogate(
-        lnl_model_path=str(model_dir),
-        outdir=str(mcmc_dir),
-        verbose=False,
-        truths=truths,
-        mcmc_kwargs=dict(mcmc_settings),
-    )
+    try:
+        result = sample_lnl_surrogate(
+            lnl_model_path=str(model_dir),
+            outdir=str(mcmc_dir),
+            verbose=False,
+            truths=truths,
+            mcmc_kwargs=dict(mcmc_settings),
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logging.getLogger("simulation_study").warning(
+            "MCMC sampling failed (%s). Skipping posterior diagnostics.", exc,
+        )
+        return
 
     if result is None or result.posterior is None or "log_likelihood" not in result.posterior:
         return
