@@ -41,7 +41,9 @@ class LnLSurrogate(Likelihood):
             truth: np.ndarray = None,  # True minima for helping with visualization
             inital_samples: np.ndarray = None,  # Initial samples for the active learner
             initial_lnls: np.ndarray = None,  # Initial log likelihoods for the active learner
-            reject_bad_points: bool = False,  # Disable rejection for broader coverage by default
+            scaler_soft_clipping: bool = True,  # Whether to soft-clip transformed lnL values
+            scaler_clip_factor: float = 3.0,  # Clip factor passed to AdaptiveRobustScaler
+            scaler_lower_clip_percentile: float | None | str = "auto",  # Floor poor LnL regions
     ) -> "LnLSurrogate":
         """
         Train the LnLSurrogate model.
@@ -70,8 +72,23 @@ class LnLSurrogate(Likelihood):
         logger.info(stats_msg)
 
         # 3. Create negative log-likelihood computer
+        lower_clip_value = None
+        lower_clip_percentile = None
+        if isinstance(scaler_lower_clip_percentile, str):
+            if scaler_lower_clip_percentile.lower() == "auto":
+                lower_clip_value = float(np.percentile(initial_lnls, 5.0))
+            else:
+                raise ValueError(f"Unknown scaler_lower_clip_percentile string: {scaler_lower_clip_percentile}")
+        else:
+            lower_clip_percentile = scaler_lower_clip_percentile
+
         neg_lnl_computer = robust_neg_lnl_computer_factory(
-            lnl_computer, initial_lnls, reject_bad_points=reject_bad_points
+            lnl_computer,
+            initial_lnls,
+            soft_clipping=scaler_soft_clipping,
+            clip_factor=scaler_clip_factor,
+            lower_clip_percentile=lower_clip_percentile,
+            lower_clip_value=lower_clip_value,
         )
 
         # Store reference for later use
