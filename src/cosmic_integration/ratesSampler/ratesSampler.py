@@ -40,6 +40,18 @@ import argparse
 import time
 from tqdm.auto import tqdm
 
+from .parameter_grid import (  # noqa: E402
+    ALPHA_VALUES,
+    DEFAULT_PARAMS,
+    NEIJSSEL_ALPHA,
+    NEIJSSEL_SFR_A,
+    NEIJSSEL_SFR_D,
+    NEIJSSEL_SIGMA,
+    NEIJSSEL_Z0,
+    SFR_A_VALUES,
+    SFR_D_VALUES,
+    SIGMA_VALUES,
+)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -79,28 +91,9 @@ Z_SCALE                = 0.0
 SKEW                   = 0.0 
 LOG_Z_STEP             = 0.01
 
-# Neijssel+19 Eq.7-9
-NEIJSSEL_Z0 = 0.035
-NEIJSSEL_ALPHA = -0.23
-NEIJSSEL_SIGMA = 0.39
-NEIJSSEL_SFR_A = 0.01
-NEIJSSEL_SFR_D = 4.7
-DEFAULT_PARAMS = [NEIJSSEL_ALPHA, NEIJSSEL_SIGMA, NEIJSSEL_SFR_A, NEIJSSEL_SFR_D]
-
+# Neijssel+19 Eq.7-9 + parameter grids now live in ratesSampler/parameter_grid.py.
 
 SAMPLE_COUNT = 1
-
-
-
-ALPHA_VALUES = [-0.500, -0.400, -0.300, -0.200, -0.100, -0.001]
-SIGMA_VALUES = [ 0.100,  0.200,  0.300,  0.400,  0.500,  0.600]
-SFR_A_VALUES = [ 0.005,  0.007,  0.009,  0.011,  0.013,  0.015]
-SFR_D_VALUES = [ 4.200,  4.400,  4.600,  4.800,  5.000,  5.200]
-
-ALPHA_VALUES = np.linspace(min(ALPHA_VALUES), max(ALPHA_VALUES), 10)
-SIGMA_VALUES = np.linspace(min(SIGMA_VALUES), max(SIGMA_VALUES), 10)
-SFR_A_VALUES = np.linspace(min(SFR_A_VALUES), max(SFR_A_VALUES), 10)
-SFR_D_VALUES = np.linspace(min(SFR_D_VALUES), max(SFR_D_VALUES), 10)
 
 
 # globals

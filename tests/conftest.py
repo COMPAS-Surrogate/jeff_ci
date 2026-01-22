@@ -1,21 +1,21 @@
 import os
+import shutil
+import urllib.request
+from pathlib import Path
 from unittest.mock import patch
 
 import h5py
 import numpy as np
 import pytest
-import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 np.random.seed(0)
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-TEST_DATA = os.path.join(HERE, "test_data")
-OUTDIR = os.path.join(HERE, "out")
-os.makedirs(TEST_DATA, exist_ok=True)
-
-LARGE_TEST_DATA = os.path.join(HERE, "large_test_data")
+HERE = Path(__file__).resolve().parent
+TEST_DATA = HERE / "test_data"
+LARGE_TEST_DATA = HERE / "large_test_data"
+TEST_DATA.mkdir(parents=True, exist_ok=True)
 
 
 
@@ -25,22 +25,42 @@ def test_compas_h5():
     Fixture to provide the path to the COMPAS test data file.
     """
 
-    large_test_fn = os.path.join(LARGE_TEST_DATA, "h5out_5M.h5")
-    if os.path.exists(large_test_fn):
-        return large_test_fn
-    path = os.path.join(TEST_DATA, "test_compas.h5")
-    if not os.path.exists(path):
-        _generate_fake_compas_file(path)
-    return path
+    external = os.environ.get("COSMIC_INTEGRATION_COMPAS_H5")
+    if external:
+        external_path = Path(external).expanduser()
+        if external_path.exists():
+            return str(external_path)
+
+    large_test_fn = LARGE_TEST_DATA / "h5out_5M.h5"
+    if large_test_fn.exists():
+        return str(large_test_fn)
+
+    path = TEST_DATA / "test_compas.h5"
+    if not path.exists():
+        _generate_fake_compas_file(str(path))
+    return str(path)
 
 
-@pytest.fixture
-def outdir():
+@pytest.fixture(scope="session")
+def outdir(tmp_path_factory: pytest.TempPathFactory):
     """
     Fixture to provide the output directory for tests.
+
+    Defaults to a per-session temporary directory so test artifacts don't bloat
+    the repo checkout. Set `COSMIC_INTEGRATION_TEST_OUTDIR` to override.
     """
-    os.makedirs(OUTDIR, exist_ok=True)
-    return OUTDIR
+    env_out = os.environ.get("COSMIC_INTEGRATION_TEST_OUTDIR")
+    if env_out:
+        out = Path(env_out).expanduser()
+        if not out.is_absolute():
+            out = HERE / out
+        out.mkdir(parents=True, exist_ok=True)
+        return str(out)
+
+    # Use a per-session directory under pytest's base temp dir (outside the repo)
+    # to avoid accumulating artifacts under `tests/out`.
+    out = tmp_path_factory.mktemp("cosmic_integration")
+    return str(out)
 
 
 @pytest.fixture
@@ -62,13 +82,13 @@ def mock_sys_argv():
 
 @pytest.fixture
 def observation_file(outdir):
-    mock_obs = os.path.join(outdir, "mock_observation.h5")
-    if not os.path.exists(mock_obs):
+    mock_obs = Path(outdir) / "mock_observation.h5"
+    if not mock_obs.exists():
         _download_file(
             url = 'https://github.com/COMPAS-Surrogate/ilya_simulation/raw/refs/heads/main/mock_population_weights.h5',
-            dest = mock_obs
+            dest = str(mock_obs)
         )
-    return mock_obs
+    return str(mock_obs)
 
 
 def _generate_fake_compas_file(filename: str, n_systems=5000, frac_bbh: float = 0.7, frac_bns: float = 0.2,
@@ -129,11 +149,7 @@ def _download_file(url: str, dest: str):
     """
     Download a file from a URL to a specified destination.
     """
-    import requests
-    response = requests.get(url)
-    if response.status_code == 200:
-        with open(dest, 'wb') as f:
-            f.write(response.content)
-        print(f"Downloaded {url} to {dest}")
-    else:
-        raise Exception(f"Failed to download {url}, status code: {response.status_code}")
+    with urllib.request.urlopen(url) as response:  # noqa: S310
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(response, f)
+    print(f"Downloaded {url} to {dest}")

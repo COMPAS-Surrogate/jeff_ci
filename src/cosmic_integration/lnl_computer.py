@@ -154,10 +154,19 @@ class LnLComputer:
         """
         Plot the model matrix for the given parameters.
 
-        :param params: List of parameters [alpha, sigma, sfr_a, sfr_d]
+        :param params: Parameters either as a list/array [alpha, sigma, sfr_a, sfr_d]
+            or as a dict with keys {"alpha","sigma","sfr_a","sfr_d"}.
         :param outdir: Output directory for the plot
         """
         import matplotlib.pyplot as plt
+
+        if isinstance(params, dict):
+            params = [
+                float(params["alpha"]),
+                float(params["sigma"]),
+                float(params["sfr_a"]),
+                float(params["sfr_d"]),
+            ]
 
         model_matrix = self.model.FindBinnedDetectionRate(
             p_Alpha=params[0],

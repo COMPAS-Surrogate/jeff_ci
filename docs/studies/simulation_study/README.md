@@ -1,8 +1,8 @@
 # Simulation study
 
-We recreate the study from the paper:
+We recreate the study from the Jeff Riley's paper (https://arxiv.org/pdf/2303.00508), but using OUR active-learning/GP method. 
 
-https://arxiv.org/pdf/2303.00508
+
 
 
 > 3.2.1. Method validation: inference on perfect measurements
@@ -48,13 +48,13 @@ We then replaced each of the chosen events with samples from an associated mock 
 samples, we used a mock model of the LVK prior. We
 built the source-frame chirp mass prior by assuming
 that the component masses m1 > m2 are uniformly
-drawn from the range [1, 1000]M, with additional cuts
+drawn from the range [1, 1000]Mf, with additional cuts
 m2 ∈ [0.05m1, m1] and M ≡ m0.6
 1 m0.6
 2
 (m1 + m2)
 −0.2 ∈
-[1, 200]M. For the mock redshift prior, we used π(z) ∝
+[1, 200]Mf. For the mock redshift prior, we used π(z) ∝
 z
 2 on z ∈ [0.01, 1.5]. We then weighed mock chirp mass
 and redshift samples taken from

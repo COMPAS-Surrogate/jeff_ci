@@ -7,6 +7,14 @@ Author: Jeff Riley
 pip install -e .
 ```
 
+**Repo hygiene (local artifacts):**
+- Clean large, gitignored artifacts (dry-run): `python3 scripts/clean_local_artifacts.py`
+- Actually delete: `python3 scripts/clean_local_artifacts.py --yes`
+- Include simulation outputs: `python3 scripts/clean_local_artifacts.py --include-simulation-outputs --yes`
+- Include large HDF5 datasets: `python3 scripts/clean_local_artifacts.py --include-datasets --yes`
+- Override test output dir (avoid `tests/out` bloat): set `COSMIC_INTEGRATION_TEST_OUTDIR=/path/to/dir`
+- Point tests at an external COMPAS HDF5 (avoid copying `h5out_5M.h5` into the repo): set `COSMIC_INTEGRATION_COMPAS_H5=/path/to/file.h5`
+
 **Usage:**
 ```bash
 usage: run_cosmic_integration [-h] [-i INPUTNAME] [-p INPUTPATH] [-v [VERBOSE]]

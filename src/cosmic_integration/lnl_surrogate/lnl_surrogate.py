@@ -5,10 +5,13 @@ from tqdm.auto import tqdm
 from scipy.stats import qmc
 
 from typing import List
-from .active_learner import ActiveLearner
 from ..lnl_computer import LnLComputer
-from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
-from .adaptive_robust_scalar import robust_neg_lnl_computer_factory, AdaptiveRobustScaler
+from ..ratesSampler.parameter_grid import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES
+from .adaptive_robust_scalar import (
+    robust_neg_lnl_computer_factory,
+    AdaptiveRobustScaler,
+    suggest_lower_clip_value,
+)
 
 BOUNDS = np.array([
     [np.min(ALPHA_VALUES), np.min(SIGMA_VALUES), np.min(SFR_A_VALUES), np.min(SFR_D_VALUES)],
@@ -22,11 +25,14 @@ class LnLSurrogate(Likelihood):
     def __init__(
             self,
             gp_model,
-            scaler: AdaptiveRobustScaler
+            scaler: AdaptiveRobustScaler,
+            *,
+            uncertainty_beta: float = 0.0,
     ):
         super().__init__(parameters={param: 0.0 for param in PARAMETERS})  # Initialize with dummy parameters
         self.gp_model = gp_model
         self.scaler = scaler
+        self.uncertainty_beta = float(uncertainty_beta)
 
     @classmethod
     def train(
@@ -69,6 +75,7 @@ class LnLSurrogate(Likelihood):
   Range: {np.max(initial_lnls) - np.min(initial_lnls):,.2f}"""
 
         logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
         logger.info(stats_msg)
 
         # 3. Create negative log-likelihood computer
@@ -76,7 +83,25 @@ class LnLSurrogate(Likelihood):
         lower_clip_percentile = None
         if isinstance(scaler_lower_clip_percentile, str):
             if scaler_lower_clip_percentile.lower() == "auto":
-                lower_clip_value = float(np.percentile(initial_lnls, 5.0))
+                try:
+                    n_events = int(lnl_computer.observation.population_weights.shape[0])
+                except Exception:
+                    n_events = 0
+                # The MC/Z term can produce extremely poor LnL values when the model assigns
+                # near-zero probability to some events. A too-shallow floor (e.g. max-200)
+                # makes those regions appear artificially plausible to the surrogate.
+                #
+                # Use an event-count-scaled floor to keep truly-bad regions far below the peak,
+                # while relying on the scaler's soft-clipping to keep the transformed space stable.
+                min_delta = max(2.0e4, 200.0 * float(max(n_events, 1)))
+                max_delta = max(2.0e5, 900.0 * float(max(n_events, 1)))
+                lower_clip_value = suggest_lower_clip_value(
+                    initial_lnls,
+                    best_fraction=0.05,
+                    delta_factor=50.0,
+                    min_delta=min_delta,
+                    max_delta=max_delta,
+                )
             else:
                 raise ValueError(f"Unknown scaler_lower_clip_percentile string: {scaler_lower_clip_percentile}")
         else:
@@ -89,6 +114,8 @@ class LnLSurrogate(Likelihood):
             clip_factor=scaler_clip_factor,
             lower_clip_percentile=lower_clip_percentile,
             lower_clip_value=lower_clip_value,
+            focus_fraction=0.05,
+            max_scale=10.0,
         )
 
         # Store reference for later use
@@ -99,6 +126,7 @@ class LnLSurrogate(Likelihood):
 
         # Set up file handler for this training session
         file_handler = logging.FileHandler(log_filename, mode='a')
+        file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
         logger.addHandler(file_handler)
 
@@ -114,9 +142,11 @@ class LnLSurrogate(Likelihood):
         best_lnl = initial_lnls[best_idx]
         best_point_msg = f"Best initial point: LnL={best_lnl:.2f} at {best_point}"
         logger.info(best_point_msg)
+        logger.info("Scaler diagnostics: %s", neg_lnl_computer.scaler.get_diagnostics())
 
         # 4. Run active learning
         model_dir = f"{outdir}/gp_model"
+        from .active_learner import ActiveLearner
         _, model = ActiveLearner(
             trainable_function=neg_lnl_computer,
             bounds=BOUNDS,
@@ -133,22 +163,43 @@ class LnLSurrogate(Likelihood):
         logger.info("Training completed successfully")
         logger.info(f"Logs saved to {log_filename}")
 
+        logger.removeHandler(file_handler)
+        file_handler.close()
+
         return cls(model.model, neg_lnl_computer.scaler)
 
     @classmethod
-    def load(cls, model_dir: str):
+    def load(
+        cls,
+        model_dir: str,
+        *,
+        uncertainty_beta: float = 0.0,
+        round_idx: int | None = None,
+    ):
         """
         Load the LnLSurrogate model from a saved state.
         """
-        model = ActiveLearner.load_model(model_dir)
-        return cls(model, AdaptiveRobustScaler.load(f"{model_dir}/../"))
+        from .active_learner import ActiveLearner
+        model = ActiveLearner.load_model(model_dir, round_idx=round_idx)
+        return cls(
+            model,
+            AdaptiveRobustScaler.load(f"{model_dir}/../"),
+            uncertainty_beta=uncertainty_beta,
+        )
 
     def log_likelihood(self) -> float:
         params = np.array([list(self.parameters.values())])
 
         # Get prediction from GP (this is the negative transformed value)
-        neg_transformed_lnl, _ = self.gp_model.predict_f(params)
-        neg_transformed_lnl = neg_transformed_lnl.numpy().flatten()[0]
+        neg_transformed_lnl, neg_transformed_var = self.gp_model.predict_f(params)
+        neg_transformed_lnl = float(neg_transformed_lnl.numpy().reshape(-1)[0])
+        neg_transformed_var = float(neg_transformed_var.numpy().reshape(-1)[0])
+        neg_transformed_std = float(np.sqrt(max(neg_transformed_var, 0.0)))
+
+        # Optionally penalize predictions in high-uncertainty regions (helps prevent
+        # spurious high-LnL modes when sampling with the surrogate).
+        if self.uncertainty_beta:
+            neg_transformed_lnl = neg_transformed_lnl + self.uncertainty_beta * neg_transformed_std
 
         # Convert back to positive transformed value
         transformed_lnl = -neg_transformed_lnl
@@ -159,25 +210,29 @@ class LnLSurrogate(Likelihood):
         return original_lnl
 
 
-def sample_points(n: int = 10, parameters: List[str] = PARAMETERS) -> np.ndarray:
-    sampler = qmc.LatinHypercube(d=len(PARAMETERS))
+def sample_points(n: int = 10, parameters: List[str] = PARAMETERS, *, seed: int | None = None) -> np.ndarray:
+    indices = [PARAMETERS.index(name) for name in parameters]
+    bounds = BOUNDS[:, indices]
+
+    rng = np.random.default_rng(seed)
+    sampler = qmc.LatinHypercube(d=len(parameters), seed=seed)
     lhc_samples = sampler.random(n=n // 2)
 
     # Scale to parameter bounds
-    scaled_samples = qmc.scale(lhc_samples, BOUNDS[0], BOUNDS[1])
+    scaled_samples = qmc.scale(lhc_samples, bounds[0], bounds[1])
 
     # Stage 2: Add some corner/edge cases
     corners = []
-    for i in range(min(n // 4, 2 ** len(PARAMETERS))):
+    for i in range(min(n // 4, 2 ** len(parameters))):
         corner = []
-        for j, (low, high) in enumerate(BOUNDS.T):
+        for j, (low, high) in enumerate(bounds.T):
             corner.append(low if (i >> j) & 1 else high)
         corners.append(corner)
 
     # Stage 3: Add some random samples
     remaining = n - len(scaled_samples) - len(corners)
     if remaining > 0:
-        random_samples = np.random.uniform(BOUNDS[0], BOUNDS[1], size=(remaining, len(PARAMETERS)))
+        random_samples = rng.uniform(bounds[0], bounds[1], size=(remaining, len(parameters)))
         all_samples = np.vstack([scaled_samples, corners, random_samples])
     else:
         all_samples = np.vstack([scaled_samples, corners])

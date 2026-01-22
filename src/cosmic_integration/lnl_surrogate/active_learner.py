@@ -2,16 +2,13 @@
 
 import logging
 import os
-import shutil
 from typing import Callable, Optional
-import glob
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 import gpflow
 import numpy as np
 import tensorflow as tf
-import tensorflow_probability as tfp
 from tqdm import tqdm
 from scipy.stats import normaltest
 from trieste.acquisition import (
@@ -22,11 +19,16 @@ from trieste.acquisition.rule import EfficientGlobalOptimization
 from trieste.bayesian_optimizer import BayesianOptimizer, OptimizationResult
 from trieste.data import Dataset
 from trieste.models.gpflow import GaussianProcessRegression
-from trieste.models.utils import get_module_with_variables
 from trieste.objectives import mk_observer
 from trieste.space import Box
 
-from .plotting import plot_diagnostics
+from .active_learning.gp_model import build_and_optimize_gpr
+from .active_learning.persistence import load_round_model, save_round_model
+from .active_learning.trieste_loop import run_active_learning
+from .diagnostics.plots import plot_diagnostics
+from ..tf_compat import patch_tensorflow_nest_protocol_for_py312_tf216
+
+patch_tensorflow_nest_protocol_for_py312_tf216()
 
 
 class ActiveLearner:
@@ -119,48 +121,7 @@ class ActiveLearner:
             N_init = initial_points
 
         # ─── 4) Build an initial GPflow GPR on those seed data ───────────────────
-
-        def build_model(data: Dataset) -> gpflow.models.GPR:
-            noise = 1e-5
-
-            # Set ARD lengthscales proportional to parameter widths to respect units
-            widths = (self.bounds[1] - self.bounds[0]).astype(np.float64)
-            # Start around ~30% of each dimension's width (heuristic)
-            init_ls = np.clip(0.3 * widths, 1e-6, np.inf)
-
-            kernel = gpflow.kernels.Matern52(
-                variance=np.float64(1.0),
-                lengthscales=init_ls,
-            )
-
-            mean_init = np.float64(np.mean(data.observations.numpy()))
-            mean_function = gpflow.mean_functions.Constant(mean_init)
-
-            # LogNormal priors centered on initial values for stability
-            prior_scale = tf.constant(0.75, dtype=tf.float64)
-            kernel.variance.prior = tfp.distributions.LogNormal(
-                tf.constant(-1.0, dtype=tf.float64), prior_scale
-            )
-            kernel.lengthscales.prior = tfp.distributions.LogNormal(
-                tf.math.log(tf.convert_to_tensor(init_ls, dtype=tf.float64)), prior_scale
-            )
-
-            # Standard Gaussian likelihood with tiny jitter (deterministic objective)
-            model = gpflow.models.GPR(
-                data=data.astuple(),
-                kernel=kernel,
-                noise_variance=noise,
-                mean_function=mean_function,
-            )
-            return model
-
-        gpr = build_model(self.current_dataset)
-        opt = gpflow.optimizers.Scipy()
-        opt.minimize(
-            gpr.training_loss,
-            variables=gpr.trainable_variables,
-            options={"maxiter": 1000},
-        )
+        gpr = build_and_optimize_gpr(self.current_dataset, self.bounds)
 
         # Kernel diagnostics tracking
         self.kernel_diagnostics = {
@@ -193,7 +154,8 @@ class ActiveLearner:
         # Track inverse-transformed (LnL) best values
         scaler = getattr(self.trainable_function, 'scaler', None)
         if scaler is not None:
-            self.current_best_lnl = scaler.inverse_transform(self.current_best)
+            # Objective is y = -transform(lnl), so transform(lnl_best) = -min(y).
+            self.current_best_lnl = scaler.inverse_transform(-self.current_best)
         else:
             self.current_best_lnl = self.current_best
         self.history_best_lnl = [self.current_best_lnl] * N_init
@@ -212,7 +174,8 @@ class ActiveLearner:
         # Update inverse-transformed (LnL) best value
         scaler = getattr(self.trainable_function, 'scaler', None)
         if scaler is not None:
-            lnl_new_scalar = scaler.inverse_transform(y_new)
+            # Objective is y = -transform(lnl); invert using the corresponding transform value.
+            lnl_new_scalar = scaler.inverse_transform(-y_new)
         else:
             lnl_new_scalar = y_new
         self.current_best_lnl = lnl_new_scalar
@@ -283,89 +246,24 @@ class ActiveLearner:
             convergence_warnings: bool = True,
             patience: int = 3,
             kernel_diagnostics: bool = True,
-            adaptive_acquisition: bool = True):
+            adaptive_acquisition: bool = True,
+            round_callback: Optional[Callable[[int, "ActiveLearner"], None]] = None,
+            callback_fail_fast: bool = True):
         """
         Run active learning for `total_steps`, grouped into "rounds" of length `steps_per_round`.
         Enhanced with adaptive acquisition strategy and comprehensive diagnostics.
         """
-
-        rounds_without_improvement = 0
-        best_so_far = float('inf')
-
-        assert total_steps > 0 and steps_per_round > 0
-        num_rounds = total_steps // steps_per_round
-
-        pbar = tqdm(total=total_steps, unit="step")
-        step_counter = 0
-
-        for r in range(num_rounds):
-            # Adaptive or fixed acquisition split
-            if adaptive_acquisition:
-                explore_steps, exploit_steps = self._adaptive_acquisition_split(r, steps_per_round)
-            else:
-                # Original fixed split
-                explore_steps = int(round((2.0 / 3.0) * steps_per_round))
-                exploit_steps = steps_per_round - explore_steps
-
-            logger = logging.getLogger(__name__)
-            logger.info(f"Round {r}: {explore_steps} explore + {exploit_steps} exploit steps")
-
-            # ── Explore Phase: Pure PredictiveVariance ───────────────────────────
-            for i in range(explore_steps):
-                pbar.set_description(f"Exploring (best: {self.current_best:.4f} | lnl: {self.current_log_likelihood:.4f})")
-                self._one_bo_step_with_rule(step_counter, self.exploration_rule, "PredVar")
-                step_counter += 1
-                pbar.update(1)
-
-            # ── Exploit Phase: Expected Improvement ──────────────────────────────
-            for i in range(exploit_steps):
-                pbar.set_description(f"Exploiting (best: {self.current_best:.4f} | lnl: {self.current_log_likelihood:.4f})")
-                self._one_bo_step_with_rule(step_counter, self.exploitation_rule, "EI")
-                step_counter += 1
-                pbar.update(1)
-
-            # ── End of Round: Enhanced diagnostics ─────────────────────────
-            pbar.set_description("Diagnostics & Checkpointing")
-
-            # Model uncertainty tracking
-            current_uncertainty = self._compute_model_uncertainty()
-            self.model_uncertainty_history.append(current_uncertainty)
-
-            # Kernel diagnostics
-            if kernel_diagnostics and r % 2 == 0:
-                self._print_kernel_diagnostics(r)
-
-            # Convergence warnings (no stopping)
-            if convergence_warnings and self._check_convergence():
-                rounds_without_improvement += 1
-                logger.warning(f"No significant improvement for {rounds_without_improvement} rounds")
-                logger.warning(f"Current best: {self.current_best:.6f}")
-                logger.warning(f"Average uncertainty: {current_uncertainty:.4f}")
-                logger.warning(f"Consider: different acquisition strategy, kernel, or more exploration")
-
-                if rounds_without_improvement >= patience:
-                    logger.warning(f"CONVERGENCE WARNING: {patience}+ rounds without improvement!")
-                    logger.warning(f"You may want to consider stopping manually or adjusting strategy")
-            else:
-                rounds_without_improvement = 0
-
-            # Update best tracker
-            if self.current_best < best_so_far:
-                best_so_far = self.current_best
-                rounds_without_improvement = 0
-                logger.info(f"New best found: {self.current_best:.6f}")
-
-            # Save diagnostics and model
-            self._plot_diagnostics(round_idx=r)
-            self.save_model(round_idx=r)
-
-        pbar.close()
-
-        # Print final acquisition summary
-        if adaptive_acquisition and self.acquisition_history:
-            self._print_acquisition_summary()
-
-        return self.current_dataset, self.current_model
+        return run_active_learning(
+            self,
+            total_steps=total_steps,
+            steps_per_round=steps_per_round,
+            convergence_warnings=convergence_warnings,
+            patience=patience,
+            kernel_diagnostics=kernel_diagnostics,
+            adaptive_acquisition=adaptive_acquisition,
+            round_callback=round_callback,
+            callback_fail_fast=callback_fail_fast,
+        )
 
     def _plot_diagnostics(self, round_idx: int):
         plot_dir = os.path.join(self.outdir, "plots")
@@ -394,35 +292,17 @@ class ActiveLearner:
     def save_model(self, round_idx: Optional[int] = None):
         if round_idx is None:
             round_idx = 0
-        model_dir = os.path.join(self.outdir, f"models/round_{round_idx}")
-        if os.path.isdir(model_dir):
-            shutil.rmtree(model_dir)
-        os.makedirs(model_dir)
-
-        gpr_model = self.current_model.model
-        if self.result is not None:
-            module = get_module_with_variables(self.result.try_get_final_model())
-            module.predict_f = tf.function(
-                gpr_model.predict_f,
-                input_signature=[tf.TensorSpec(shape=[None, self.dim], dtype=tf.float64)],
-            )
-            tf.saved_model.save(module, model_dir)
+        save_round_model(
+            current_model=self.current_model,
+            result=self.result,
+            outdir=self.outdir,
+            round_idx=int(round_idx),
+            dim=int(self.dim),
+        )
 
     @staticmethod
     def load_model(model_dir: str, round_idx: int | None = None) -> tf.Module:
-        models = glob.glob(os.path.join(model_dir, "round_*"))
-        if len(models) == 0:
-            raise FileNotFoundError(f"No models found in {model_dir}.")
-
-        if round_idx is not None:
-            model_path = os.path.join(model_dir, f"round_{round_idx}")
-            if model_path not in models:
-                raise FileNotFoundError(f"Model for round {round_idx} does not exist in {model_dir}.")
-        else:
-            model_path = max(models, key=os.path.getmtime)
-
-        module = tf.saved_model.load(model_path)
-        return module
+        return load_round_model(model_dir, round_idx=round_idx)
 
     def _diagnose_kernel_adequacy(self) -> dict:
         gpr_model = self.current_model.model

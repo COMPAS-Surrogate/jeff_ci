@@ -6,7 +6,11 @@ tests/out
 *.txt
 *.csv
 *.png
-
+*.json
+*.npz
+*.h5
+*.log
+*.csv
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
