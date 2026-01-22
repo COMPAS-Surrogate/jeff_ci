@@ -14,7 +14,7 @@ from ..observation import load_observation
 from .active_learner import ActiveLearner
 from .adaptive_robust_scalar import robust_neg_lnl_computer_factory, suggest_lower_clip_value
 from .diagnostics.gp_truth import gp_accuracy_vs_distance
-from .diagnostics.posterior_kl import consecutive_posterior_kl
+from .diagnostics.posterior_kl import consecutive_posterior_kl, posterior_kl_vs_reference
 from .lnl_surrogate import BOUNDS, PARAMETERS, sample_points
 from .run_sampler import sample_lnl_surrogate
 
@@ -32,7 +32,8 @@ class SurrogateWorkflowConfig:
     seed: int = 0
     force_dataset: bool = False
 
-    postprocess_every: int = 2
+    postprocess_every: int = 1
+    postprocess_during_bo: bool = True
     mcmc_kwargs: dict[str, Any] = field(default_factory=lambda: {"nwalkers": 32, "iterations": 2000})
     mcmc_uncertainty_beta: float | Sequence[float] = 0.0
 
@@ -57,6 +58,7 @@ class SurrogateWorkflowConfig:
                 "seed": int(self.seed),
                 "force_dataset": bool(self.force_dataset),
                 "postprocess_every": int(self.postprocess_every),
+                "postprocess_during_bo": bool(self.postprocess_during_bo),
                 "mcmc_kwargs": dict(self.mcmc_kwargs),
                 "mcmc_uncertainty_beta": self.mcmc_uncertainty_beta,
                 "gp_truth_n_per_fraction": int(self.gp_truth_n_per_fraction),
@@ -204,28 +206,40 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
     rounds_root.mkdir(parents=True, exist_ok=True)
     processed_rounds: list[int] = []
 
-    def _postprocess_round(round_idx: int, active_learner: ActiveLearner) -> None:
-        if int(config.postprocess_every) <= 0:
-            return
-        if int(round_idx) % int(config.postprocess_every) != 0:
-            return
-
+    def _postprocess_round(round_idx: int, active_learner: Optional[ActiveLearner]) -> None:
         round_dir = rounds_root / f"round_{int(round_idx)}"
         round_dir.mkdir(parents=True, exist_ok=True)
 
-        points = active_learner.current_dataset.query_points.numpy()
-        obs = active_learner.current_dataset.observations.numpy().reshape(-1)
-        best_idx = int(np.argmin(obs)) if obs.size else 0
-        best_x = points[best_idx].tolist() if points.size else None
+        dataset_dir = round_dir / "dataset"
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+
+        points = None
+        obs = None
+        if active_learner is not None:
+            points = np.asarray(active_learner.current_dataset.query_points.numpy(), dtype=float)
+            obs = np.asarray(active_learner.current_dataset.observations.numpy().reshape(-1), dtype=float)
+            np.savez_compressed(dataset_dir / "dataset.npz", points=points, observations=obs)
+        else:
+            dataset_path = dataset_dir / "dataset.npz"
+            if dataset_path.exists():
+                payload = np.load(dataset_path)
+                points = np.asarray(payload["points"], dtype=float)
+                obs = np.asarray(payload["observations"], dtype=float).reshape(-1)
+
+        best_x = None
         best_lnl = None
-        if obs.size:
-            best_lnl = float(active_learner.trainable_function.scaler.inverse_transform(-float(obs[best_idx])))
+        n_train = None
+        if points is not None and obs is not None and obs.size and points.size:
+            n_train = int(points.shape[0])
+            best_idx = int(np.argmin(obs))
+            best_x = points[best_idx].tolist()
+            best_lnl = float(scaler.inverse_transform(-float(obs[best_idx])))
 
         (round_dir / "bo_summary.json").write_text(
             json.dumps(
                 {
                     "round": int(round_idx),
-                    "n_train": int(points.shape[0]),
+                    "n_train": int(n_train) if n_train is not None else None,
                     "best_x": best_x,
                     "best_lnl": best_lnl,
                 },
@@ -260,15 +274,47 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
 
         processed_rounds.append(int(round_idx))
 
+    def _should_process(round_idx: int) -> bool:
+        if int(config.postprocess_every) <= 0:
+            return False
+        return int(round_idx) % int(config.postprocess_every) == 0
+
+    num_rounds = int(config.total_steps) // int(config.steps_per_round)
+    last_round = max(num_rounds - 1, 0)
+
+    round_callback = None
+    if int(config.postprocess_every) > 0 and config.postprocess_during_bo:
+        def _cb(r: int, al: ActiveLearner) -> None:
+            if _should_process(r):
+                _postprocess_round(r, al)
+
+        round_callback = _cb
+
     learner.run(
         total_steps=int(config.total_steps),
         steps_per_round=int(config.steps_per_round),
-        round_callback=_postprocess_round,
+        round_callback=round_callback,
         callback_fail_fast=bool(config.callback_fail_fast),
     )
 
     model_dir.mkdir(parents=True, exist_ok=True)
     scaler.save(str(model_dir))
+
+    if int(config.postprocess_every) > 0 and not config.postprocess_during_bo:
+        selected = list(range(0, num_rounds, int(config.postprocess_every)))
+        if selected and selected[-1] != last_round:
+            selected.append(last_round)
+        elif not selected:
+            selected = [last_round]
+        for r in selected:
+            _postprocess_round(int(r), None)
+
+    # Ensure the final round is postprocessed so KL-vs-final has a reference.
+    if int(config.postprocess_every) > 0 and last_round not in processed_rounds:
+        if config.postprocess_during_bo and _should_process(last_round):
+            _postprocess_round(int(last_round), learner)
+        else:
+            _postprocess_round(int(last_round), None)
 
     final_dir = outdir / "final"
     final_dir.mkdir(parents=True, exist_ok=True)
@@ -279,6 +325,12 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
             rounds=sorted(set(processed_rounds)),
             outdir=final_dir / "posterior_kl",
         )
+        posterior_kl_vs_reference(
+            postprocess_root=rounds_root,
+            rounds=sorted(set(processed_rounds)),
+            reference_round=int(max(processed_rounds)),
+            outdir=final_dir / "posterior_kl_vs_final",
+        )
 
     summary = {
         "outdir": str(outdir.resolve()),
@@ -287,6 +339,9 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         "processed_rounds": sorted(set(int(r) for r in processed_rounds)),
         "kl_series_path": str((final_dir / "posterior_kl" / "kl_consecutive.json").resolve())
         if kl_series
+        else None,
+        "kl_vs_final_path": str((final_dir / "posterior_kl_vs_final" / "kl_vs_reference.json").resolve())
+        if processed_rounds
         else None,
     }
     (outdir / "workflow_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")

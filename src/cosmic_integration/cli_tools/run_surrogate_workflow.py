@@ -18,7 +18,13 @@ from cosmic_integration.lnl_surrogate.workflow import (
 @click.option("--steps-per-round", type=int, default=30, show_default=True)
 @click.option("--seed", type=int, default=0, show_default=True)
 @click.option("--force-dataset", is_flag=True, help="Recompute the initial dataset even if it exists.")
-@click.option("--postprocess-every", type=int, default=2, show_default=True)
+@click.option("--postprocess-every", type=int, default=1, show_default=True)
+@click.option(
+    "--postprocess-during-bo/--postprocess-after-bo",
+    default=True,
+    show_default=True,
+    help="Run per-round MCMC/diagnostics during BO (slower) or only after BO completes.",
+)
 @click.option("--mcmc-nwalkers", type=int, default=32, show_default=True)
 @click.option("--mcmc-iterations", type=int, default=2000, show_default=True)
 @click.option(
@@ -53,6 +59,7 @@ def main(
     seed: int,
     force_dataset: bool,
     postprocess_every: int,
+    postprocess_during_bo: bool,
     mcmc_nwalkers: int,
     mcmc_iterations: int,
     mcmc_uncertainty_beta: str,
@@ -93,6 +100,7 @@ def main(
         seed=int(seed),
         force_dataset=bool(force_dataset),
         postprocess_every=int(postprocess_every),
+        postprocess_during_bo=bool(postprocess_during_bo),
         mcmc_kwargs={"nwalkers": int(mcmc_nwalkers), "iterations": int(mcmc_iterations)},
         mcmc_uncertainty_beta=beta_value,
         gp_truth_n_per_fraction=int(gp_truth_n_per_fraction),
@@ -109,4 +117,3 @@ def main(
 
 if __name__ == "__main__":
     main()
-

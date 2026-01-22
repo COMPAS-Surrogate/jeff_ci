@@ -119,3 +119,87 @@ def consecutive_posterior_kl(
 
     return series
 
+
+def posterior_kl_vs_reference(
+    *,
+    postprocess_root: str | Path,
+    rounds: Sequence[int],
+    reference_round: int,
+    outdir: str | Path,
+    bins: int = 60,
+    parameters: Sequence[str] = PARAMETERS,
+) -> list[dict]:
+    """
+    Compute KL(P_round || P_reference_round) for each round in `rounds`.
+
+    Expects `posterior_samples.npy` under:
+      postprocess_root/round_<r>/MCMC/posterior_samples.npy
+    """
+
+    postprocess_root = Path(postprocess_root)
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    ordered = [int(r) for r in rounds]
+    ordered = sorted(set(ordered))
+    if not ordered:
+        (outdir / "kl_vs_reference.json").write_text("[]", encoding="utf-8")
+        return []
+
+    reference_round = int(reference_round)
+    ref_path = postprocess_root / f"round_{reference_round}" / "MCMC" / "posterior_samples.npy"
+    if not ref_path.exists():
+        raise FileNotFoundError(f"Missing posterior samples for reference round {reference_round}: {ref_path}")
+    ref_samples = np.asarray(np.load(ref_path), dtype=float)
+    if ref_samples.ndim != 2 or ref_samples.shape[1] != len(parameters):
+        raise ValueError(f"Unexpected reference samples shape for round {reference_round}: {ref_samples.shape}")
+
+    series: list[dict] = []
+    for r in ordered:
+        samples_path = postprocess_root / f"round_{r}" / "MCMC" / "posterior_samples.npy"
+        if not samples_path.exists():
+            raise FileNotFoundError(f"Missing posterior samples for round {r}: {samples_path}")
+        samples = np.asarray(np.load(samples_path), dtype=float)
+        if samples.ndim != 2 or samples.shape[1] != len(parameters):
+            raise ValueError(f"Unexpected samples shape for round {r}: {samples.shape}")
+
+        kl_by_param = {}
+        skl_by_param = {}
+        for idx, param in enumerate(parameters):
+            kl_pr = _kl_1d_hist(samples[:, idx], ref_samples[:, idx], bins=bins)
+            kl_rp = _kl_1d_hist(ref_samples[:, idx], samples[:, idx], bins=bins)
+            kl_by_param[param] = float(kl_pr)
+            skl_by_param[param] = float(0.5 * (kl_pr + kl_rp))
+
+        kl_vals = [v for v in kl_by_param.values() if np.isfinite(v)]
+        skl_vals = [v for v in skl_by_param.values() if np.isfinite(v)]
+        series.append(
+            {
+                "round": int(r),
+                "reference_round": int(reference_round),
+                "kl_by_param": kl_by_param,
+                "kl_mean": float(np.mean(kl_vals)) if kl_vals else float("nan"),
+                "skl_by_param": skl_by_param,
+                "skl_mean": float(np.mean(skl_vals)) if skl_vals else float("nan"),
+            }
+        )
+
+    (outdir / "kl_vs_reference.json").write_text(json.dumps(series, indent=2), encoding="utf-8")
+
+    x = [item["round"] for item in series]
+    y = [item["kl_mean"] for item in series]
+    y_skl = [item["skl_mean"] for item in series]
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(x, y, marker="o", label=f"mean KL(P_round || P_round={reference_round}) (1D marginals)")
+    ax.plot(x, y_skl, marker="o", label="mean sym KL (1D marginals)")
+    ax.set_xlabel("Round")
+    ax.set_ylabel("Divergence")
+    ax.set_title("Posterior divergence vs final-round surrogate")
+    ax.grid(True, alpha=0.25)
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(outdir / "kl_vs_reference.png", dpi=200)
+    plt.close(fig)
+
+    return series
