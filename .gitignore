@@ -3,6 +3,8 @@ outputs
 tests/test_data
 tests/out
 
+wiki
+
 *.txt
 *.csv
 *.png
