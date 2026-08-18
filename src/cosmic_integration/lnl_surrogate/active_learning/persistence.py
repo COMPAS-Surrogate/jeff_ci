@@ -6,7 +6,11 @@ import shutil
 from typing import Optional
 
 import tensorflow as tf
-from trieste.models.utils import get_module_with_variables
+
+
+def _module_with_variables(model_obj):
+    """Return a tf.Module-like object carrying variables for SavedModel export."""
+    return getattr(model_obj, "model", model_obj)
 
 
 def save_round_model(
@@ -26,7 +30,7 @@ def save_round_model(
         return
 
     gpr_model = current_model.model
-    module = get_module_with_variables(result.try_get_final_model())
+    module = _module_with_variables(result.try_get_final_model())
     module.predict_f = tf.function(
         gpr_model.predict_f,
         input_signature=[tf.TensorSpec(shape=[None, dim], dtype=tf.float64)],

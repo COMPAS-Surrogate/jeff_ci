@@ -474,7 +474,7 @@ class COMPAS:
             if self.CHonMS1 is not None and self.CHonMS2 is not None:       # if able
                 mask     = np.logical_and.reduce((self.zamsST1 == 16, self.zamsST2 == 16, self.CHonMS1 == True, self.CHonMS2 == True))
                 cheSeeds = self.sysSeeds[...][mask]
-                mask     = np.in1d(self.dcoSeeds, cheSeeds)
+                mask     = np.isin(self.dcoSeeds, cheSeeds)
 
                 if p_DCOtypes == 'CHE_BBH'    : typeMasks['CHE_BBH']     = np.logical_and(mask, type_masks['BBH'])
                 if p_DCOtypes == 'NON_CHE_BBH': typeMasks['NON_CHE_BBH'] = np.logical_and(np.logical_not(mask), type_masks['BBH'])
@@ -492,7 +492,7 @@ class COMPAS:
         if p_NoRLOFafterCEE or p_Pessimistic:                               # if required
             if self.ceeSeeds is not None and self.immediateRLOF is not None and self.optimisticCE is not None: # if able
 
-                dcoFromCE = np.in1d(self.ceeSeeds, self.dcoSeeds)
+                dcoFromCE = np.isin(self.ceeSeeds, self.dcoSeeds)
                 dcoCEseeds = self.ceeSeeds[dcoFromCE]
 
 
@@ -500,7 +500,7 @@ class COMPAS:
 
                 if p_NoRLOFafterCEE:                                            # if required
                     rlofSeeds = np.unique(dcoCEseeds[self.immediateRLOF[dcoFromCE]])
-                    rlofMask = np.logical_not(np.in1d(self.dcoSeeds, rlofSeeds))
+                    rlofMask = np.logical_not(np.isin(self.dcoSeeds, rlofSeeds))
                 else:
                     rlofMask = np.repeat(True, len(self.dcoSeeds))
 
@@ -509,7 +509,7 @@ class COMPAS:
 
                 if p_Pessimistic:                                               # if required
                     pessimisticSeeds = np.unique(dcoCEseeds[self.optimisticCE[dcoFromCE]])
-                    pessimisticMask = np.logical_not(np.in1d(self.dcoSeeds, pessimisticSeeds))
+                    pessimisticMask = np.logical_not(np.isin(self.dcoSeeds, pessimisticSeeds))
                 else:
                     pessimisticMask = np.repeat(True, len(self.dcoSeeds))
 
@@ -536,7 +536,7 @@ class COMPAS:
         self.coalescenceTime      = self.coalescenceTime[self.DCOmask]
         self.mergesInHubbleTime   = self.mergesInHubbleTime[self.DCOmask]
 
-        self.Zsystems             = self.zamsZ[np.in1d(self.sysSeeds, self.dcoSeeds)]
+        self.Zsystems             = self.zamsZ[np.isin(self.sysSeeds, self.dcoSeeds)]
         self.delayTime            = np.add(self.formationTime, self.coalescenceTime)
 
         self.massEvolvedPerBinary = self.CalculateStarFormingMassPerBinary(p_Samples        = 20000000, 

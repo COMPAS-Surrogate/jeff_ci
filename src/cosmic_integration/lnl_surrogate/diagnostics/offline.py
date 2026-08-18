@@ -16,12 +16,16 @@ from tqdm.auto import tqdm
 
 from trieste.acquisition.rule import RandomSampling
 from trieste.models.gpflow import GaussianProcessRegression
-from trieste.models.utils import get_module_with_variables
 from trieste.space import Box
 
 from ..adaptive_robust_scalar import AdaptiveRobustScaler, suggest_lower_clip_value
 from ..lnl_surrogate import BOUNDS
 from ..run_sampler import sample_lnl_surrogate
+
+
+def _module_with_variables(model_obj):
+    """Return a tf.Module-like object carrying variables for SavedModel export."""
+    return getattr(model_obj, "model", model_obj)
 
 
 def _latin_hypercube(bounds: np.ndarray, n: int, seed: Optional[int] = None) -> np.ndarray:
@@ -213,7 +217,7 @@ def _run_round_diagnostics(
         model_dir.mkdir(parents=True, exist_ok=True)
 
         trieste_model = GaussianProcessRegression(model, num_kernel_samples=250)
-        module = get_module_with_variables(trieste_model)
+        module = _module_with_variables(trieste_model)
         module.predict_f = tf.function(
             model.predict_f,
             input_signature=[tf.TensorSpec(shape=[None, train_points.shape[1]], dtype=tf.float64)],
@@ -490,7 +494,7 @@ def fit_surrogate_from_samples(
     model_dir = gp_root / "models" / "round_0"
     model_dir.mkdir(parents=True, exist_ok=True)
     trieste_model = GaussianProcessRegression(model, num_kernel_samples=250)
-    module = get_module_with_variables(trieste_model)
+    module = _module_with_variables(trieste_model)
     module.predict_f = tf.function(
         model.predict_f,
         input_signature=[tf.TensorSpec(shape=[None, x.shape[1]], dtype=tf.float64)],

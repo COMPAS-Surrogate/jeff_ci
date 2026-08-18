@@ -19,7 +19,12 @@ from trieste.acquisition.rule import EfficientGlobalOptimization
 from trieste.bayesian_optimizer import BayesianOptimizer, OptimizationResult
 from trieste.data import Dataset
 from trieste.models.gpflow import GaussianProcessRegression
-from trieste.objectives import mk_observer
+# Trieste moved mk_observer from trieste.objectives to trieste.objectives.utils
+# across versions; keep compatibility with both import paths.
+try:
+    from trieste.objectives import mk_observer
+except ImportError:  # pragma: no cover
+    from trieste.objectives.utils import mk_observer
 from trieste.space import Box
 
 from .active_learning.gp_model import build_and_optimize_gpr
@@ -143,7 +148,11 @@ class ActiveLearner:
 
         # Only use acquisition functions that actually exist in Trieste
         self.exploration_rule = EfficientGlobalOptimization(PredictiveVariance(jitter=1e-6))
-        self.exploitation_rule = EfficientGlobalOptimization(ExpectedImprovement(search_space=self.search_space))
+        try:
+            expected_improvement = ExpectedImprovement(search_space=self.search_space)
+        except TypeError:  # pragma: no cover
+            expected_improvement = ExpectedImprovement()
+        self.exploitation_rule = EfficientGlobalOptimization(expected_improvement)
         self.result = None
 
         # ─── 6) Initialize best‐so‐far history using N_init seeds ────────────────
@@ -193,7 +202,6 @@ class ActiveLearner:
             datasets=self.current_dataset,
             models=self.current_model,
             acquisition_rule=rule,
-            fit_model=True,
             fit_initial_model=i == 0,
         )
 

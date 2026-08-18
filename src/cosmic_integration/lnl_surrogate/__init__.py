@@ -18,6 +18,11 @@ except ModuleNotFoundError:  # pragma: no cover
     OfflineDiagnosticsResult = None  # type: ignore[assignment]
     OfflineRoundResult = None  # type: ignore[assignment]
     offline_surrogate_diagnostics = None  # type: ignore[assignment]
+except ImportError:  # pragma: no cover
+    ActiveLearner = None  # type: ignore[assignment]
+    OfflineDiagnosticsResult = None  # type: ignore[assignment]
+    OfflineRoundResult = None  # type: ignore[assignment]
+    offline_surrogate_diagnostics = None  # type: ignore[assignment]
 
 # Set up logging for the lnl_surrogate module
 logging.getLogger(__name__).addHandler(logging.NullHandler())

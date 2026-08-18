@@ -2,7 +2,20 @@
 Diagnostics tooling for the surrogate: plotting helpers and offline fitting checks.
 """
 
-from .offline import OfflineDiagnosticsResult, OfflineRoundResult, fit_surrogate_from_samples, offline_surrogate_diagnostics
+# Optional heavy dependencies used by offline diagnostics can vary across
+# Trieste versions; keep lightweight diagnostics importable regardless.
+try:  # pragma: no cover
+    from .offline import (
+        OfflineDiagnosticsResult,
+        OfflineRoundResult,
+        fit_surrogate_from_samples,
+        offline_surrogate_diagnostics,
+    )
+except (ModuleNotFoundError, ImportError):  # pragma: no cover
+    OfflineDiagnosticsResult = None  # type: ignore[assignment]
+    OfflineRoundResult = None  # type: ignore[assignment]
+    fit_surrogate_from_samples = None  # type: ignore[assignment]
+    offline_surrogate_diagnostics = None  # type: ignore[assignment]
 from .plots import plot_diagnostics, plot_trace, scatter_matrix
 from .gp_truth import gp_accuracy_vs_distance
 from .posterior_kl import consecutive_posterior_kl, posterior_kl_vs_reference
