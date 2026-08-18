@@ -384,6 +384,7 @@ def _lnl_1d_scan(lnl_computer: LnLComputer, output_dir: Path) -> None:
 def _train_surrogate(
     artifacts: StudyArtifacts,
     *,
+    observation_file: str,
     force: bool,
     initial_points: int,
     total_steps: int,
@@ -406,7 +407,7 @@ def _train_surrogate(
     )
 
     compas_h5 = _compas_catalogue()
-    observation_path = str(artifacts.subset_observation)
+    observation_path = str(observation_file)
     np.random.seed(seed)
 
     LnLSurrogate.train(
@@ -998,6 +999,7 @@ def run(
 
     _train_surrogate(
         artifacts,
+        observation_file=obs_fn,
         force=force,
         initial_points=settings["active_learning_initial_points"],
         total_steps=settings["active_learning_total_steps"],
@@ -1058,7 +1060,7 @@ def run(
                 default_burnin = int(mcmc_settings.get("nburn", 0))
                 effective_burnin = int(surrogate_chain_burnin) if surrogate_chain_burnin else default_burnin
                 run_chain_diagnostics(
-                    observation_file=str(artifacts.subset_observation),
+                    observation_file=str(obs_fn),
                     compas_h5=str(_compas_catalogue()),
                     model_dir=str(artifacts.analysis_dir / "gp_model" / "models"),
                     chain_path=str(chain_path),
