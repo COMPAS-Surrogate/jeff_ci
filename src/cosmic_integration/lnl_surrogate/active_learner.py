@@ -202,6 +202,7 @@ class ActiveLearner:
             datasets=self.current_dataset,
             models=self.current_model,
             acquisition_rule=rule,
+            track_state=False,
             fit_initial_model=i == 0,
         )
 
