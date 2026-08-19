@@ -95,6 +95,52 @@ def make_log_likelihood(
     return log_likelihood
 
 
+def _init_points(log_likelihood, model: FittedJaxGP, num_chains: int, *, seed: int) -> np.ndarray:
+    """Starting points for each chain: local maxima of the surrogate lnL.
+
+    Chains must start from *different* points for R-hat to mean anything -- if
+    they all start together, R-hat can look excellent while the chains sit in
+    the same corner of a multimodal or degenerate posterior. We take the best
+    training point plus the best of several random restarts, hill-climbed with
+    gradient ascent, and keep the most widely separated candidates.
+    """
+    low, high = np.asarray(BOUNDS[0], float), np.asarray(BOUNDS[1], float)
+    rng = np.random.default_rng(seed)
+
+    grad = jax.jit(jax.grad(lambda t: log_likelihood(t).sum()))
+    starts = [np.asarray(model.data.query_points, float)[
+        int(np.argmin(np.asarray(model.data.observations).reshape(-1)))
+    ]]
+    starts += list(rng.uniform(low, high, size=(4 * num_chains, len(low))))
+
+    climbed = []
+    span = high - low
+    for s in starts:
+        theta = jnp.asarray(s, dtype=jnp.float64)
+        for _ in range(60):
+            g = grad(theta)
+            step = 0.01 * jnp.asarray(span) * jnp.sign(g)
+            theta = jnp.clip(theta + step, jnp.asarray(low), jnp.asarray(high))
+        climbed.append((float(log_likelihood(theta)), np.asarray(theta, float)))
+
+    climbed.sort(key=lambda kv: -kv[0])
+    chosen = [climbed[0][1]]
+    for _, cand in climbed[1:]:
+        if len(chosen) >= num_chains:
+            break
+        # Prefer candidates that are not on top of an already-chosen start.
+        if min(np.max(np.abs((cand - c) / span)) for c in chosen) > 0.02:
+            chosen.append(cand)
+    while len(chosen) < num_chains:
+        chosen.append(rng.uniform(low, high))
+
+    logger.info(
+        "NUTS init points (lnL): %s",
+        [round(float(log_likelihood(jnp.asarray(c))), 2) for c in chosen],
+    )
+    return np.asarray(chosen[:num_chains], dtype=float)
+
+
 def _numpyro_model(log_likelihood, low, high):
     theta = numpyro.sample("theta", dist.Uniform(low, high).to_event(1))
     numpyro.factor("surrogate", log_likelihood(theta))
@@ -143,7 +189,7 @@ def run_nuts(
     round_idx: Optional[int] = None,
     num_warmup: int = 1000,
     num_samples: int = 4000,
-    num_chains: int = 4,
+    num_chains: int = 2,
     seed: int = 0,
     sigma_cap: float = DEFAULT_SIGMA_CAP,
     truths: Optional[dict] = None,
@@ -167,6 +213,9 @@ def run_nuts(
         gp, scaler, target=target, sigma_cap=sigma_cap
     )
 
+    init_theta = _init_points(
+        log_likelihood, gp, num_chains, seed=seed
+    )
     kernel = NUTS(_numpyro_model, target_accept_prob=0.9)
     mcmc = MCMC(
         kernel,
@@ -176,7 +225,14 @@ def run_nuts(
         chain_method="sequential",
         progress_bar=False,
     )
-    mcmc.run(jax.random.PRNGKey(int(seed)), log_likelihood, low, high)
+    mcmc.run(
+        jax.random.PRNGKey(int(seed)),
+        log_likelihood,
+        low,
+        high,
+        init_params={"theta": jnp.asarray(init_theta)},
+        extra_fields=("diverging",),
+    )
 
     samples = np.asarray(mcmc.get_samples()["theta"], dtype=float)
     np.save(outdir / "posterior_samples.npy", samples)
@@ -186,8 +242,9 @@ def run_nuts(
         mcmc.get_samples(group_by_chain=True)["theta"], dtype=float
     )
     r_hat, ess = _rhat_ess(grouped)
-    divergences = int(np.sum(np.asarray(mcmc.get_extra_fields()
-                                        .get("diverging", np.zeros(1)))))
+    divergences = int(np.sum(np.asarray(
+        mcmc.get_extra_fields().get("diverging", np.zeros(1))
+    )))
     best = samples[int(np.argmax([log_likelihood(jnp.asarray(s)) for s in samples[:512]]))]
     roughness = surface_roughness(gp, best)
 
