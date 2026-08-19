@@ -35,10 +35,8 @@ class BinnedCosmicIntegrator(CosmicIntegration):
 
         # bin the detection rates deterministically by chirp-mass column
         binnedDetectionRate = np.zeros((numChirpMassBins, numRows), dtype=float)
-        for col_idx in range(numColumns):
-            McBin = ChirpMassBin(chirpMasses[col_idx], p_ChirpMassBins)
-            # Accumulate the detection rate across redshift bins for this chirp-mass column
-            binnedDetectionRate[McBin, :] += detectionRate[col_idx, :]
+        McBins = ChirpMassBin(chirpMasses[:numColumns], p_ChirpMassBins)
+        np.add.at(binnedDetectionRate, McBins, detectionRate[:numColumns])
 
         return binnedDetectionRate
 
@@ -77,12 +75,12 @@ def MakeChirpMassBins(minChirpMass=MIN_CHIRPMASS, maxChirpMass=MAX_CHIRPMASS, bi
 # find chirpMass bin in chirpMassBins
 # allows for variable width bins
 def ChirpMassBin(chirpMass, chirpMassBins):
-    bin = 0
-    while chirpMass >= chirpMassBins[bin]:
-        bin += 1
-        if bin >= len(chirpMassBins): break
+    """Index of the first bin edge above chirpMass (len(bins) if there is none).
 
-    return bin
+    Bin edges are ascending, so this is a binary search. Accepts a scalar or an
+    array of chirp masses.
+    """
+    return np.searchsorted(chirpMassBins, chirpMass, side="right")
 
 
 
