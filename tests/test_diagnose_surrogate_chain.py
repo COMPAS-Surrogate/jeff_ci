@@ -34,12 +34,10 @@ def test_run_chain_diagnostics_respects_burnin(tmp_path, monkeypatch):
 
     class DummyGP:
         def predict_f(self, x):
-            import tensorflow as tf
-
-            x = tf.cast(x, tf.float64)
-            lnl = tf.reduce_sum(x, axis=1, keepdims=True)
+            x = np.asarray(x, dtype=float)
+            lnl = np.sum(x, axis=1, keepdims=True)
             mu = -lnl  # negative-transformed convention used by the surrogate
-            var = tf.zeros_like(mu)
+            var = np.zeros_like(mu)
             return mu, var
 
     class DummySurrogate:

@@ -15,7 +15,8 @@ If you’re adding new features, prefer keeping core logic in the package module
 ## Repository map
 - `cosmic_integration/lnl_surrogate/`
   - `lnl_surrogate.py`: main `LnLSurrogate` Likelihood wrapper + training entrypoint
-  - `active_learning/`: GP/active-learning loop plumbing
+  - `jax_active_learner.py`: GPJax exact GP + BO loop (variance / expected-improvement acquisition)
+  - `diagnostics/`: GP-vs-truth, posterior-KL, and trace/scatter plots
   - `adaptive_robust_scalar.py`: target transform / scaling utilities
   - `run_sampler.py`: sampling utilities using a trained surrogate
 - `cosmic_integration/observation/`: observation models and plotting
@@ -40,12 +41,12 @@ Then install the project dependencies.
 ### Train a surrogate (example)
 The project includes CLIs under `cosmic_integration/cli_tools/`.
 
-Example (see `cli_tools/train_surrogate.py`):
+Example (see `cli_tools/run_surrogate_workflow.py`):
 
 ```bash
-python -m cosmic_integration.cli_tools.train_surrogate \
-  path/to/COMPAS.h5 \
-  --observation-file path/to/observation.json \
+run_surrogate_workflow \
+  --compas-h5 path/to/COMPAS.h5 \
+  --observation-file path/to/observation.h5 \
   --outdir outdir
 ```
 
@@ -63,18 +64,17 @@ Prefer `python -m cosmic_integration.cli_tools.<script_name>` so imports resolve
 ## Tests (pytest)
 This project uses **pytest**.
 
-Run the full test suite:
+`pytest` runs the **fast unit suite only** (~20s). Heavy tests are marked and
+deselected by default via `addopts` in `pyproject.toml`:
+
+- `slow` — runs cosmic integration or trains a surrogate end to end (minutes)
+- `network` — downloads the mock observation from GitHub
 
 ```bash
-pytest
-```
-
-Common variants:
-
-```bash
-pytest -q
+pytest                      # fast unit suite (default)
+pytest -m slow              # heavy tests only
+pytest -m ""                # everything
 pytest -k <pattern>
-pytest tests/<test_file>.py -q
 ```
 
 ### Test expectations

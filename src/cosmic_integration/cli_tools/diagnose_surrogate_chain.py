@@ -1,11 +1,10 @@
 import json
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 import click
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
 from tqdm.auto import tqdm
 
 from cosmic_integration.lnl_computer import LnLComputer
@@ -184,10 +183,9 @@ def run_chain_diagnostics(
     )
     surrogate = LnLSurrogate.load(model_dir, uncertainty_beta=0.0)
 
-    x = tf.convert_to_tensor(points, dtype=tf.float64)
-    mu, var = surrogate.gp_model.predict_f(x)
-    mu = np.asarray(mu.numpy().reshape(-1), dtype=float)
-    var = np.asarray(var.numpy().reshape(-1), dtype=float)
+    mu, var = surrogate.gp_model.predict_f(points)
+    mu = np.asarray(mu, dtype=float).reshape(-1)
+    var = np.asarray(var, dtype=float).reshape(-1)
     std = np.sqrt(np.maximum(var, 0.0))
 
     true_lnls = np.array(
