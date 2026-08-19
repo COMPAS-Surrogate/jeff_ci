@@ -17,11 +17,11 @@ namespaces = false  # to disable scanning PEP 420 namespaces (true by default)
 name = "compas_surrogate.cosmic_integration"
 dynamic = ["version"] # scm versioning (using tags)
 requires-python = ">=3.11"
-description = "Run cosmic integration on COMPAS output"
+description = "Run cosmic integration on COMPAS output and build a GP surrogate for its LnL function."
 readme = "README.md"
 authors = [
-    { name = "Jeff Riley", email = "jeff.riley@monash.edu" },
     { name = "Avi Vajpeyi", email = "avi.vajpeyi@gmail.com" },
+        { name = "Jeff Riley", email = "jeff.riley@monash.edu" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -46,7 +46,8 @@ dependencies = [
     "corner",
     "colormath",
     "pytest>=8.3.5",
-    "setuptools>=75.3.4,<81",
+    "setuptools>=75.3.4",
+    "pandas",
 ]
 
 
