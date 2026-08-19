@@ -5,11 +5,9 @@ from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 from cosmic_integration.observation import load_observation
 import pytest
 
-ON_GITHUB = os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
 
-
-
-@pytest.mark.skipif(ON_GITHUB, reason="Skip test on GitHub Actions due to resource constraints.")
+@pytest.mark.slow
+@pytest.mark.network
 def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
     """
     Test the LnLSurrogate class.

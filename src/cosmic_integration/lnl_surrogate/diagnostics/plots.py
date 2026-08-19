@@ -1,4 +1,3 @@
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -225,7 +224,7 @@ def plot_trace(points, param_idx, values=None, true_minima=None, bounds=None,
 
     # Plot trace
     if values is not None:
-        sc = ax.scatter(steps, points[:, param_idx], c=values, cmap=cmap,
+        ax.scatter(steps, points[:, param_idx], c=values, cmap=cmap,
                         s=20, alpha=0.7, edgecolors="none")
         # also connect with line
         ax.plot(steps, points[:, param_idx], color="gray", alpha=0.3, linewidth=1)

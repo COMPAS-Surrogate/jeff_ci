@@ -7,12 +7,8 @@ import numpy as np
 
 
 
-GITHUB_ACTION = os.getenv("GITHUB_ACTIONS", "false").lower() == "true"
 
-
-
-
-@pytest.mark.skipif(GITHUB_ACTION, reason="Skip test on GitHub Actions due to resource constraints.")
+@pytest.mark.slow
 def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     """
     Test that the rate file can be generated without errors.
@@ -35,7 +31,6 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     print(f"Expected detections: {np.sum(binned_rates):.2f}")
 
     duration  = 1
-    fname = f"{outdir}/mock_observation.h5"
     params = np.array(list(params.values()))
 
     obs = MockObservation.generate_from_rates(

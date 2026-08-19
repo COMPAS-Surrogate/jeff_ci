@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.ticker import ScalarFormatter
 
 from ..ratesSampler.binned_cosmic_integrator import get_default_mc_z_bins
 from ..plot_rate import plot_matrix, MC_LATEX, Z_LATEX

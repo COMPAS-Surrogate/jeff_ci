@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Dict, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
-import tensorflow as tf
 from tqdm.auto import tqdm
 
 from ..lnl_surrogate import BOUNDS, PARAMETERS, LnLSurrogate
@@ -115,10 +114,9 @@ def gp_accuracy_vs_distance(
         dtype=float,
     )
 
-    x = tf.convert_to_tensor(points, dtype=tf.float64)
-    mu_neg, var_neg = surrogate.gp_model.predict_f(x)
-    mu_neg = np.asarray(mu_neg.numpy().reshape(-1), dtype=float)
-    var_neg = np.asarray(var_neg.numpy().reshape(-1), dtype=float)
+    mu_neg, var_neg = surrogate.gp_model.predict_f(points)
+    mu_neg = np.asarray(mu_neg, dtype=float).reshape(-1)
+    var_neg = np.asarray(var_neg, dtype=float).reshape(-1)
     std_neg = np.sqrt(np.maximum(var_neg, 0.0))
 
     mu_transformed = -mu_neg
@@ -205,4 +203,3 @@ def gp_accuracy_vs_distance(
     plt.close(fig)
 
     return payload
-

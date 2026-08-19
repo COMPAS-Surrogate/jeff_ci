@@ -8,8 +8,6 @@ import h5py
 import numpy as np
 import pytest
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-
 np.random.seed(0)
 
 HERE = Path(__file__).resolve().parent
