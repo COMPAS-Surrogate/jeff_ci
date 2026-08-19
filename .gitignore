@@ -231,3 +231,7 @@ docs/studies/finite_sample_bias/*.png
 
 # git worktrees
 .worktrees/
+
+# subset_training study: regenerable run outputs and logs
+docs/studies/subset_training/*_out/
+docs/studies/subset_training/*.log

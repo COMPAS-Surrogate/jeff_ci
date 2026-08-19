@@ -41,6 +41,7 @@ class SurrogateWorkflowConfig:
     gp_truth_fractions: Sequence[float] = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4)
 
     scaler_soft_clipping: bool = False
+    scaler_compression: str = "sqrt"
     scaler_clip_factor: float = 3.0
     scaler_lower_clip_percentile: float | None | str = "auto"
 
@@ -64,6 +65,7 @@ class SurrogateWorkflowConfig:
                 "gp_truth_n_per_fraction": int(self.gp_truth_n_per_fraction),
                 "gp_truth_fractions": list(float(x) for x in self.gp_truth_fractions),
                 "scaler_soft_clipping": bool(self.scaler_soft_clipping),
+                "scaler_compression": str(self.scaler_compression),
                 "scaler_clip_factor": float(self.scaler_clip_factor),
                 "scaler_lower_clip_percentile": self.scaler_lower_clip_percentile,
                 "callback_fail_fast": bool(self.callback_fail_fast),
@@ -127,8 +129,13 @@ def _resolve_lower_clip(
         # at the clip, the GP fitted its lengthscales to that plateau, and the
         # acquisition function was left with no usable uncertainty near the
         # posterior. Keep these O(10-100), independent of the catalogue size.
-        min_delta = 20.0
-        max_delta = 50.0
+        # NB: keep this LOOSE. A tight clip flattens the far tail, which is the
+        # only gradient the acquisition function has to walk toward the peak --
+        # with a tight clip BO acquires fewer informative points than random
+        # sampling (docs/studies/subset_training/test_acquisition_target.py).
+        # Dynamic range is tamed by `scaler_compression` instead.
+        min_delta = 1.0e3
+        max_delta = 1.0e5
         lower_clip_value = suggest_lower_clip_value(
             initial_lnls,
             best_fraction=0.05,
@@ -190,7 +197,8 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         lower_clip_percentile=lower_clip_percentile,
         lower_clip_value=lower_clip_value,
         focus_fraction=0.05,
-        max_scale=5.0,
+        max_scale=1e9,
+        compression=str(config.scaler_compression),
     )
 
     scaler = neg_lnl_computer.scaler

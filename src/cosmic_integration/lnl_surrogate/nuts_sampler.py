@@ -65,7 +65,17 @@ def _inverse_transform_jax(t, scaler: AdaptiveRobustScaler):
         standardized = jnp.where(t <= 0.0, neg_branch, t)
     else:
         standardized = t
-    return standardized * scaler.scale + scaler.median + scaler.reference_value
+
+    delta = jnp.maximum(-standardized * scaler.scale, 0.0)
+    compression = getattr(scaler, "compression", "none")
+    if compression == "log":
+        delta = jnp.expm1(delta)
+    elif compression == "sqrt":
+        delta = delta**2
+    elif compression == "softlog":
+        d0 = getattr(scaler, "compression_scale", 10.0)
+        delta = d0 * jnp.expm1(jnp.minimum(delta / d0, 700.0))
+    return scaler.reference_value + scaler.median - delta
 
 
 def make_log_likelihood(

@@ -78,6 +78,8 @@ class AdaptiveRobustScaler:
         clip_factor: float = 3.0,
         focus_fraction: float = 0.05,
         max_scale: float = 10.0,
+        compression: str = "none",
+        compression_scale: float = 10.0,
     ):
         self.lower_clip_percentile = lower_clip_percentile
         self.lower_clip_value = lower_clip_value
@@ -91,6 +93,24 @@ class AdaptiveRobustScaler:
         self.max_scale = float(max_scale)
         if self.max_scale <= 0:
             raise ValueError("max_scale must be positive.")
+        # How to compress the drop below the best lnL before scaling.
+        #   none - linear. Keeps tail gradient (good for BO acquisition) but
+        #          leaves the posterior a ~1e-4 sliver of the range when the
+        #          raw lnL spans 1e5, so the GP cannot resolve its shape.
+        #   log  - log1p(delta). Monotone, never flat (so BO can still walk
+        #          downhill from anywhere) yet most sensitive near the peak,
+        #          which is where the posterior lives. The usable compromise.
+        #   sqrt - intermediate.
+        # Hard clipping alone is NOT a substitute: it flattens the tail and
+        # blinds the acquisition function.
+        self.compression = str(compression).lower()
+        if self.compression not in ("none", "log", "sqrt", "softlog"):
+            raise ValueError(f"Unknown compression: {compression!r}")
+        # Only used by "softlog": the Delta lnL below which the transform is
+        # effectively linear. Should cover the posterior bulk (a few lnL units).
+        self.compression_scale = float(compression_scale)
+        if self.compression_scale <= 0:
+            raise ValueError("compression_scale must be positive.")
 
         self.reference_value: float = 0.0
         self.median: float = 0.0
@@ -135,6 +155,8 @@ class AdaptiveRobustScaler:
                 if focus.size >= 10:
                     deltas_for_scale = focus
 
+        deltas_for_scale = self._compress(deltas_for_scale)
+
         q25, q75 = np.percentile(deltas_for_scale, [25.0, 75.0])
         iqr = float(q75 - q25)
         std = float(np.std(deltas_for_scale))
@@ -143,6 +165,29 @@ class AdaptiveRobustScaler:
         self.median = 0.0
         self.scale = float(max(min(max(iqr, std), self.max_scale), 1e-6))
         self.initialized = True
+
+    def _compress(self, delta: np.ndarray) -> np.ndarray:
+        """Compress a non-negative drop below the reference value."""
+        delta = np.maximum(np.asarray(delta, dtype=float), 0.0)
+        if self.compression == "log":
+            return np.log1p(delta)
+        if self.compression == "sqrt":
+            return np.sqrt(delta)
+        if self.compression == "softlog":
+            d0 = self.compression_scale
+            return d0 * np.log1p(delta / d0)
+        return delta
+
+    def _decompress(self, value: np.ndarray) -> np.ndarray:
+        value = np.maximum(np.asarray(value, dtype=float), 0.0)
+        if self.compression == "log":
+            return np.expm1(value)
+        if self.compression == "sqrt":
+            return value ** 2
+        if self.compression == "softlog":
+            d0 = self.compression_scale
+            return d0 * np.expm1(np.minimum(value / d0, 700.0))
+        return value
 
     def _ensure_initialized(self) -> None:
         if not self.initialized:
@@ -169,7 +214,7 @@ class AdaptiveRobustScaler:
         self._ensure_initialized()
         raw = np.asarray(raw_value, dtype=float)
         clipped = self._clip(raw)
-        standardized = (clipped - self.reference_value - self.median) / self.scale
+        standardized = -self._compress(self.reference_value + self.median - clipped) / self.scale
 
         if self.soft_clipping:
             # Asymmetric soft-clipping:
@@ -205,7 +250,7 @@ class AdaptiveRobustScaler:
         else:
             standardized = transformed
 
-        raw = standardized * self.scale + self.median + self.reference_value
+        raw = self.reference_value + self.median - self._decompress(-standardized * self.scale)
 
         if np.isscalar(transformed_value):
             return float(raw)
@@ -220,6 +265,8 @@ class AdaptiveRobustScaler:
             "reference_value": self.reference_value,
             "median": self.median,
             "scale": self.scale,
+            "compression": self.compression,
+            "compression_scale": self.compression_scale,
             "lower_clip_value": self.lower_clip_value,
             "soft_clipping": self.soft_clipping,
             "clip_factor": self.clip_factor if self.soft_clipping else None,
@@ -237,6 +284,8 @@ class AdaptiveRobustScaler:
             "reference_value": self.reference_value,
             "median": self.median,
             "scale": self.scale,
+            "compression": self.compression,
+            "compression_scale": self.compression_scale,
             "initialized": self.initialized,
         }
         fname = f"{outdir}/scaler.json"
@@ -266,6 +315,8 @@ class AdaptiveRobustScaler:
                 clip_factor=state.get("clip_factor", 3.0),
                 focus_fraction=state.get("focus_fraction", 0.05),
                 max_scale=state.get("max_scale", 10.0),
+                compression=state.get("compression", "none"),
+                compression_scale=state.get("compression_scale", 10.0),
             )
             scaler.reference_value = state["reference_value"]
             scaler.median = state["median"]
@@ -301,6 +352,8 @@ def robust_neg_lnl_computer_factory(
     clip_factor: float = 3.0,
     focus_fraction: float = 0.05,
     max_scale: float = 10.0,
+    compression: str = "none",
+    compression_scale: float = 10.0,
 ) -> Callable[..., float]:
     """
     Wrap a raw LnL evaluator with robust scaling and optional clipping so the GP
@@ -313,6 +366,8 @@ def robust_neg_lnl_computer_factory(
         clip_factor=clip_factor,
         focus_fraction=focus_fraction,
         max_scale=max_scale,
+        compression=compression,
+        compression_scale=compression_scale,
     )
     scaler.initialize_with_data(initial_lnls)
 

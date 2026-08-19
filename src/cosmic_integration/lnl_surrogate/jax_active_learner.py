@@ -101,14 +101,11 @@ class FittedJaxGP:
         samplers (e.g. NUTS) can differentiate through the surrogate. The numpy
         boundary in ``predict_f`` would otherwise discard those gradients.
         """
-        distribution = self.posterior.predict(
+        return _predict_diagonal(
+            self.posterior,
+            jnp.asarray(self.data.query_points),
+            jnp.asarray(self.data.observations),
             x,
-            _as_gpjax_data(self.data),
-            return_covariance_type="diagonal",
-        )
-        return (
-            distribution.mean.reshape(-1),
-            jnp.maximum(distribution.variance.reshape(-1), 0.0),
         )
 
 
@@ -193,6 +190,26 @@ def compare_kernel_candidates(
         )
     return sorted(
         results, key=lambda result: result.mean_negative_log_predictive_density
+    )
+
+
+@jax.jit
+def _predict_diagonal(posterior, train_x, train_y, x):
+    """Jitted latent predictive mean/variance.
+
+    Without the ``jit`` every GPJax op inside ``predict`` dispatches eagerly,
+    and JAX compiles each one separately for every new training-set size -- ~60
+    one-op compilations per BO step (~0.7 s) instead of one traced program
+    (~0.07 s).
+    """
+    distribution = posterior.predict(
+        x,
+        gpx.Dataset(X=train_x, y=train_y),
+        return_covariance_type="diagonal",
+    )
+    return (
+        distribution.mean.reshape(-1),
+        jnp.maximum(distribution.variance.reshape(-1), 0.0),
     )
 
 
@@ -292,6 +309,7 @@ class JaxActiveLearner:
         random_seed: int = 42,
         config: JaxGPConfig = JaxGPConfig(),
         outdir: str | None = None,
+        refit_every: int = 15,
     ) -> None:
         self.trainable_function = trainable_function
         self.bounds = np.asarray(bounds, dtype=np.float64)
@@ -306,6 +324,12 @@ class JaxActiveLearner:
         self.outdir = Path(outdir) if outdir is not None else None
         self.rng = np.random.default_rng(random_seed)
         self._fit_seed = int(random_seed)
+        # Re-optimising the GP hyperparameters costs an O(n^3) Cholesky per
+        # optax step and dominates the loop whenever the target is cheaper than
+        # a second (in production, ~6 s of every 7 s step). Conditioning on new
+        # data is nearly free, so only re-optimise every `refit_every` steps.
+        self.refit_every = max(1, int(refit_every))
+        self._steps_since_fit = 0
 
         if (initial_data_x is None) != (initial_data_y is None):
             raise ValueError(
@@ -373,7 +397,17 @@ class JaxActiveLearner:
             np.vstack((self.data.query_points, point)),
             np.vstack((self.data.observations, value)),
         )
-        self.model = self._fit()
+        self._steps_since_fit += 1
+        if self._steps_since_fit >= self.refit_every:
+            self.model = self._fit()
+            self._steps_since_fit = 0
+        else:
+            # Condition on the new point, keeping the current hyperparameters.
+            self.model = FittedJaxGP(
+                posterior=self.model.posterior,
+                data=self.data,
+                objective_history=self.model.objective_history,
+            )
         self.history_best.append(float(np.min(self.data.observations)))
         self.acquisition_history.append(acquisition)
         return point[0], float(value[0, 0])
@@ -382,22 +416,47 @@ class JaxActiveLearner:
         self,
         total_steps: int,
         *,
-        exploration_fraction: float = 2.0 / 3.0,
+        exploration_fraction: float = 1.0 / 3.0,
+        cycle_length: int | None = 30,
         steps_per_round: int | None = None,
         round_callback: Callable[[int, "JaxActiveLearner"], None] | None = None,
     ) -> tuple[JaxTrainingData, FittedJaxGP]:
-        """Run the simple exploration/EI policy used by the current workflow."""
+        """Run the exploration/EI policy, cycling between the two.
+
+        Each cycle of ``cycle_length`` steps spends the first
+        ``exploration_fraction`` of its steps on ``predictive_variance`` and the
+        rest on ``expected_improvement``, then repeats.
+
+        Cycling matters. ``predictive_variance`` maximises posterior variance,
+        so it deliberately samples *away* from where data already exists --
+        including away from the peak. Spending one long block on it up front
+        (the previous behaviour: a single 2/3 exploration block followed by a
+        single 1/3 exploitation block) burns most of the budget avoiding the
+        region the posterior actually occupies, and leaves too few exploitation
+        steps to recover. Interleaving lets each exploration burst inform the
+        following exploitation burst, and vice versa.
+
+        Set ``cycle_length=None`` to recover the old single-block schedule.
+        """
         if total_steps < 1:
             raise ValueError("total_steps must be positive.")
         if not 0.0 <= exploration_fraction <= 1.0:
             raise ValueError("exploration_fraction must lie in [0, 1].")
         if steps_per_round is not None and steps_per_round < 1:
             raise ValueError("steps_per_round must be positive when supplied.")
-        exploration_steps = int(round(total_steps * exploration_fraction))
+        if cycle_length is not None and cycle_length < 1:
+            raise ValueError("cycle_length must be positive when supplied.")
+
+        # Cap the period at the budget: otherwise a run shorter than one cycle
+        # never reaches the exploitation phase and is pure exploration.
+        period = int(total_steps)
+        if cycle_length is not None:
+            period = max(1, min(int(cycle_length), int(total_steps)))
+        explore_per_cycle = int(round(period * exploration_fraction))
         for step_idx in range(total_steps):
             acquisition: AcquisitionName = (
                 "predictive_variance"
-                if step_idx < exploration_steps
+                if (step_idx % period) < explore_per_cycle
                 else "expected_improvement"
             )
             self.step(acquisition)
@@ -405,9 +464,18 @@ class JaxActiveLearner:
                 (step_idx + 1) % steps_per_round == 0
                 or step_idx + 1 == total_steps
             ):
+                if self._steps_since_fit:
+                    # A checkpoint must not carry stale hyperparameters.
+                    self.model = self._fit()
+                    self._steps_since_fit = 0
                 self.save_model(round_idx=step_idx // steps_per_round)
                 if round_callback is not None:
                     round_callback(step_idx // steps_per_round, self)
+        if self._steps_since_fit:
+            # Finish on optimised hyperparameters so the saved/checkpointed
+            # model is not one that merely conditioned on the last few points.
+            self.model = self._fit()
+            self._steps_since_fit = 0
         return self.data, self.model
 
     def save_model(self, *, round_idx: int) -> Path:
