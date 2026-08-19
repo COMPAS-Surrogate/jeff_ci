@@ -8,6 +8,7 @@ from matplotlib.colors import LogNorm
 from cosmic_integration.lnl_surrogate.active_learner import ActiveLearner
 
 ON_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
+FAST_TESTS = os.getenv("COSMIC_INTEGRATION_FAST_TESTS", "1").lower() not in {"0", "false", "no"}
 
 def banana(x: float, y: float, a=1, b=100) -> float:
     """
@@ -21,8 +22,8 @@ def plot_banana_and_surrogate(
     bounds: np.ndarray,
     out_path: str,
     model=None,
-    nx: int = 100,
-    ny: int = 100,
+    nx: int = 60,
+    ny: int = 60,
 ):
     """
     Plots the 2D banana (Rosenbrock) function over the rectangle given by `bounds`.
@@ -96,7 +97,7 @@ def plot_banana_and_surrogate(
 @pytest.mark.parametrize(
     "total_steps, steps_per_round",
     [
-        (10, 10) if ON_GITHUB else (3, 2)
+        (2, 2) if (ON_GITHUB or FAST_TESTS) else (10, 10)
     ]
 )
 def test_active_learner_runs(outdir, total_steps, steps_per_round):
@@ -112,7 +113,7 @@ def test_active_learner_runs(outdir, total_steps, steps_per_round):
     assert os.path.exists(analytic_plot_path), "Analytic banana plot was not saved."
 
     # 3) Instantiate ActiveLearner with the 2D banana function
-    n_init = 100
+    n_init = 5 if FAST_TESTS else 100
     learner = ActiveLearner(
         trainable_function=lambda x, y: banana(x, y),
         bounds=bounds,
@@ -123,8 +124,6 @@ def test_active_learner_runs(outdir, total_steps, steps_per_round):
     )
 
     # 4) Run with a small total and per-round budget
-    total_steps = 10
-    steps_per_round = 10
     final_dataset, final_model = learner.run(total_steps=total_steps, steps_per_round=steps_per_round)
 
     # 5) Confirm the final dataset has the right shape

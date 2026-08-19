@@ -17,6 +17,9 @@ TEST_DATA = HERE / "test_data"
 LARGE_TEST_DATA = HERE / "large_test_data"
 TEST_DATA.mkdir(parents=True, exist_ok=True)
 
+OUT_TEST = HERE / "out"
+OUT_TEST.mkdir(parents=True, exist_ok=True)
+
 
 
 @pytest.fixture
@@ -40,27 +43,9 @@ def test_compas_h5():
         _generate_fake_compas_file(str(path))
     return str(path)
 
-
-@pytest.fixture(scope="session")
-def outdir(tmp_path_factory: pytest.TempPathFactory):
-    """
-    Fixture to provide the output directory for tests.
-
-    Defaults to a per-session temporary directory so test artifacts don't bloat
-    the repo checkout. Set `COSMIC_INTEGRATION_TEST_OUTDIR` to override.
-    """
-    env_out = os.environ.get("COSMIC_INTEGRATION_TEST_OUTDIR")
-    if env_out:
-        out = Path(env_out).expanduser()
-        if not out.is_absolute():
-            out = HERE / out
-        out.mkdir(parents=True, exist_ok=True)
-        return str(out)
-
-    # Use a per-session directory under pytest's base temp dir (outside the repo)
-    # to avoid accumulating artifacts under `tests/out`.
-    out = tmp_path_factory.mktemp("cosmic_integration")
-    return str(out)
+@pytest.fixture
+def outdir():
+    return OUT_TEST
 
 
 @pytest.fixture

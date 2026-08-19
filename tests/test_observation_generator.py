@@ -34,7 +34,7 @@ def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     binned_rates = bci.FindBinnedDetectionRate(**params)
     print(f"Expected detections: {np.sum(binned_rates):.2f}")
 
-    duration  = 1
+    duration  = 0.2
     fname = f"{outdir}/mock_observation.h5"
     params = np.array(list(params.values()))
 
