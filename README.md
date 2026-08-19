@@ -1,4 +1,6 @@
-# Jeff's Cosmic integration code
+# COMPAS cosmic integration GP surrogate
+
+## Jeff's Cosmic integration code
 
 Author: Jeff Riley
 
