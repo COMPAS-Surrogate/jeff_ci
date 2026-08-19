@@ -228,3 +228,6 @@ docs/studies/finite_sample_bias/duration_scan_out/
 docs/studies/finite_sample_bias/*.log
 docs/studies/finite_sample_bias/weight_cache.npz
 docs/studies/finite_sample_bias/*.png
+
+# git worktrees
+.worktrees/

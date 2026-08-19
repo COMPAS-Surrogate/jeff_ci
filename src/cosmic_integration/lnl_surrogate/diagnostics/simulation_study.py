@@ -186,12 +186,9 @@ def summarise_surrogate_optimum(
         return
 
     try:
-        import tensorflow as tf
-
         surrogate = LnLSurrogate.load(str(model_dir))
-        x = tf.convert_to_tensor(params_arr, dtype=tf.float64)
-        y_pred, _ = surrogate.gp_model.predict_f(x)
-        y_pred = np.asarray(y_pred.numpy().reshape(-1), dtype=float)
+        y_pred, _ = surrogate.gp_model.predict_f(params_arr)
+        y_pred = np.asarray(y_pred, dtype=float).reshape(-1)
         transformed = -y_pred
         lnl_pred = np.asarray(surrogate.scaler.inverse_transform(transformed), dtype=float)
 
@@ -209,8 +206,8 @@ def summarise_surrogate_optimum(
 
         n_search = int(np.clip(int(2000), 100, 50000))
         random_points = rng.uniform(bounds[0], bounds[1], size=(n_search, len(parameters)))
-        y_rs, _ = surrogate.gp_model.predict_f(tf.convert_to_tensor(random_points, dtype=tf.float64))
-        y_rs = np.asarray(y_rs.numpy().reshape(-1), dtype=float)
+        y_rs, _ = surrogate.gp_model.predict_f(random_points)
+        y_rs = np.asarray(y_rs, dtype=float).reshape(-1)
         lnl_rs = np.asarray(surrogate.scaler.inverse_transform(-y_rs), dtype=float)
         j = int(np.argmax(lnl_rs))
         proposed = random_points[j]
@@ -430,12 +427,9 @@ def local_peak_diagnostics_vs_round(
         r = int(r)
         surrogate = LnLSurrogate.load(str(models_dir), uncertainty_beta=float(uncertainty_beta), round_idx=r)
 
-        import tensorflow as tf
-
-        x_tf = tf.convert_to_tensor(points, dtype=tf.float64)
-        neg_mu, neg_var = surrogate.gp_model.predict_f(x_tf)
-        neg_mu = np.asarray(neg_mu.numpy().reshape(-1), dtype=float)
-        neg_var = np.asarray(neg_var.numpy().reshape(-1), dtype=float)
+        neg_mu, neg_var = surrogate.gp_model.predict_f(points)
+        neg_mu = np.asarray(neg_mu, dtype=float).reshape(-1)
+        neg_var = np.asarray(neg_var, dtype=float).reshape(-1)
         transformed_mu = -neg_mu
         transformed_std = np.sqrt(np.maximum(neg_var, 0.0))
 
@@ -591,4 +585,3 @@ def _sigma_lnl_from_transformed(
     dstandardized[neg_mask] = 1.0 / (1.0 - scaled[neg_mask] ** 2)
     deriv = float(scaler.scale) * dstandardized
     return np.abs(deriv) * transformed_std
-

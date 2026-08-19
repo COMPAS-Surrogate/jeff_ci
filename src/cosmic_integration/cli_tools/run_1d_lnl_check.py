@@ -13,9 +13,7 @@ CLI args:
 import click
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 from tqdm.auto import tqdm
-import h5py
 
 from ..lnl_computer import LnLComputer
 from ..ratesSampler.ratesSampler import ALPHA_VALUES, SIGMA_VALUES, SFR_A_VALUES, SFR_D_VALUES

@@ -8,8 +8,9 @@ from cosmic_integration.cli_tools.run_1d_lnl_check import run_1d_lnl_check
 from cosmic_integration.lnl_computer import LnLComputer
 from cosmic_integration.observation import load_observation
 
-ON_GITHUB = os.environ.get("GITHUB_ACTIONS") == "true"
 
+@pytest.mark.slow
+@pytest.mark.network
 def test_lnl(test_compas_h5, observation_file, outdir):
     np.random.seed(42)  # For reproducibility
     outdir = os.path.join(outdir, "lnl_test")
@@ -39,10 +40,8 @@ def test_lnl(test_compas_h5, observation_file, outdir):
     )
 
 
-@pytest.mark.skipif(
-    ON_GITHUB,
-    reason="Skipped on GitHub CI"
-)
+@pytest.mark.slow
+@pytest.mark.network
 def test_lnl_1d(test_compas_h5, observation_file, outdir):
     """
     Test the LnLComputer with a 1D observation file.

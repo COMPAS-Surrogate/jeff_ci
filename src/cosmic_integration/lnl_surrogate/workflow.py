@@ -11,11 +11,11 @@ from tqdm.auto import tqdm
 
 from ..lnl_computer import LnLComputer
 from ..observation import load_observation
-from .active_learner import ActiveLearner
 from .adaptive_robust_scalar import robust_neg_lnl_computer_factory, suggest_lower_clip_value
 from .diagnostics.gp_truth import gp_accuracy_vs_distance
 from .diagnostics.posterior_kl import consecutive_posterior_kl, posterior_kl_vs_reference
 from .lnl_surrogate import BOUNDS, PARAMETERS, sample_points
+from .jax_active_learner import JaxActiveLearner, JaxGPConfig
 from .run_sampler import sample_lnl_surrogate
 
 
@@ -96,7 +96,6 @@ def _ensure_initial_dataset(
             raise ValueError(f"Invalid dataset file: {dataset_path}")
         return x, lnls
 
-    rng = np.random.default_rng(int(seed))
     np.random.seed(int(seed))
 
     x = sample_points(int(n), parameters=list(PARAMETERS), seed=int(seed))
@@ -192,14 +191,14 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
     initial_y = -np.asarray([scaler.transform(v) for v in initial_lnls], dtype=float).reshape(-1, 1)
 
     model_dir = outdir / "gp_model"
-    learner = ActiveLearner(
+    learner = JaxActiveLearner(
         trainable_function=neg_lnl_computer,
         bounds=np.asarray(BOUNDS, dtype=float),
         outdir=str(model_dir),
         initial_data_x=initial_x,
         initial_data_y=initial_y,
-        true_minima=np.asarray(truth_vec, dtype=float),
         random_seed=int(config.seed),
+        config=JaxGPConfig(),
     )
 
     # Persist the scaler up front: per-round postprocessing loads it back via
@@ -212,7 +211,7 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
     rounds_root.mkdir(parents=True, exist_ok=True)
     processed_rounds: list[int] = []
 
-    def _postprocess_round(round_idx: int, active_learner: Optional[ActiveLearner]) -> None:
+    def _postprocess_round(round_idx: int, active_learner: Optional[JaxActiveLearner]) -> None:
         round_dir = rounds_root / f"round_{int(round_idx)}"
         round_dir.mkdir(parents=True, exist_ok=True)
 
@@ -222,8 +221,8 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         points = None
         obs = None
         if active_learner is not None:
-            points = np.asarray(active_learner.current_dataset.query_points.numpy(), dtype=float)
-            obs = np.asarray(active_learner.current_dataset.observations.numpy().reshape(-1), dtype=float)
+            points = np.asarray(active_learner.data.query_points, dtype=float)
+            obs = np.asarray(active_learner.data.observations.reshape(-1), dtype=float)
             np.savez_compressed(dataset_dir / "dataset.npz", points=points, observations=obs)
         else:
             dataset_path = dataset_dir / "dataset.npz"
@@ -290,7 +289,7 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
 
     round_callback = None
     if int(config.postprocess_every) > 0 and config.postprocess_during_bo:
-        def _cb(r: int, al: ActiveLearner) -> None:
+        def _cb(r: int, al: JaxActiveLearner) -> None:
             if _should_process(r):
                 _postprocess_round(r, al)
 
@@ -300,7 +299,6 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         total_steps=int(config.total_steps),
         steps_per_round=int(config.steps_per_round),
         round_callback=round_callback,
-        callback_fail_fast=bool(config.callback_fail_fast),
     )
 
     if int(config.postprocess_every) > 0 and not config.postprocess_during_bo:

@@ -35,12 +35,8 @@ from scipy.interpolate import interp1d
 from scipy.stats import norm as NormDist
 import astropy.units as units
 from astropy.cosmology import WMAP9 as cosmology
-import csv
-import argparse
-import time
-from tqdm.auto import tqdm
 
-from .parameter_grid import (  # noqa: E402
+from .parameter_grid import (  # noqa: E402,F401  (re-exported for downstream imports)
     ALPHA_VALUES,
     DEFAULT_PARAMS,
     NEIJSSEL_ALPHA,
