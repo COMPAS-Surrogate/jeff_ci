@@ -1,4 +1,15 @@
-# Jeff's Cosmic integration code
+# COMPAS cosmic integration GP surrogate
+
+This code uses (most of) Jeff's rateSampler (cosmic integration tool), and adds a bayesian-optimisation layer to it.
+The goal of the bayesian-optimisation is to build an LnL surrogate (given some observed data), and thereby put some constraints on 
+cosmic-integration parameters. 
+
+
+
+
+ 
+
+## Jeff's Cosmic integration code
 
 Author: Jeff Riley
 
