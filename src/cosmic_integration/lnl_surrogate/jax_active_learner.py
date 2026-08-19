@@ -88,16 +88,28 @@ class FittedJaxGP:
         x = np.asarray(x, dtype=np.float64)
         if x.ndim != 2 or x.shape[1] != self.data.query_points.shape[1]:
             raise ValueError("x must have shape (n_points, dimension).")
+        mean, variance = self.predict_f_jax(jnp.asarray(x))
+        return (
+            np.asarray(mean, dtype=np.float64).reshape(-1, 1),
+            np.maximum(np.asarray(variance, dtype=np.float64).reshape(-1, 1), 0.0),
+        )
+
+    def predict_f_jax(self, x):
+        """Differentiable predictive mean and marginal variance.
+
+        Identical to :meth:`predict_f` but stays in JAX, so gradient-based
+        samplers (e.g. NUTS) can differentiate through the surrogate. The numpy
+        boundary in ``predict_f`` would otherwise discard those gradients.
+        """
         distribution = self.posterior.predict(
-            jnp.asarray(x),
+            x,
             _as_gpjax_data(self.data),
             return_covariance_type="diagonal",
         )
-        mean = np.asarray(distribution.mean, dtype=np.float64).reshape(-1, 1)
-        variance = np.asarray(distribution.variance, dtype=np.float64).reshape(
-            -1, 1
+        return (
+            distribution.mean.reshape(-1),
+            jnp.maximum(distribution.variance.reshape(-1), 0.0),
         )
-        return mean, np.maximum(variance, 0.0)
 
 
 @dataclass(frozen=True)
