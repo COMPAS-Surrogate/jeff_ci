@@ -1,7 +1,6 @@
 import logging
 from pathlib import Path
 import numpy as np
-from bilby.core.likelihood import Likelihood
 from tqdm.auto import tqdm
 from scipy.stats import qmc
 
@@ -39,7 +38,7 @@ BOUNDS = np.array(
 PARAMETERS = ["alpha", "sigma", "sfr_a", "sfr_d"]  # Parameters to train on
 
 
-class LnLSurrogate(Likelihood):
+class LnLSurrogate:
     def __init__(
         self,
         gp_model,
@@ -47,9 +46,10 @@ class LnLSurrogate(Likelihood):
         *,
         uncertainty_beta: float = 0.0,
     ):
-        super().__init__(
-            parameters={param: 0.0 for param in PARAMETERS}
-        )  # Initialize with dummy parameters
+        # Plain object: the sampler now talks to the GP directly via
+        # nuts_sampler. `parameters` is kept so callers can poke a single
+        # point in and read `log_likelihood()` back out.
+        self.parameters = {param: 0.0 for param in PARAMETERS}
         self.gp_model = gp_model
         self.scaler = scaler
         self.uncertainty_beta = float(uncertainty_beta)

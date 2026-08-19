@@ -30,7 +30,7 @@ jobs:
           pip install -e .[dev]
 
       - name: pytest
-        run: pytest --cov=cosmic_integration --cov-report=xml --cov-report=term-missing:skip-covered
+        run: pytest -m "" --cov=cosmic_integration --cov-report=xml --cov-report=term-missing:skip-covered
 
 #      - name: Upload Coverage to Coveralls
 #        if: ${{ github.ref == 'refs/heads/main' }}

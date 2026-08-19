@@ -8,7 +8,6 @@ import numpy as np
 
 
 
-@pytest.mark.slow
 def test_generate_observation(test_compas_h5, outdir, mock_sys_argv):
     """
     Test that the rate file can be generated without errors.

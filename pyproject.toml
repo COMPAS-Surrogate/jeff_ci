@@ -42,7 +42,7 @@ dependencies = [
     "matplotlib",
     "click",
     "tqdm",
-    "bilby",
+    "numpyro",
     "corner",
     "colormath",
     "pytest>=8.3.5",
@@ -102,13 +102,14 @@ line_length = 79
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Default run is the fast unit suite. Opt into the rest:
-#   pytest -m slow        heavy COMPAS/cosmic-integration + full surrogate training
+# Default run skips the two long tests and anything needing the network,
+# so the edit-run loop stays quick. CI runs everything (-m "").
+#   pytest -m slow        the two >30s tests
 #   pytest -m network     downloads the mock observation from GitHub
-#   pytest -m ""          everything
+#   pytest -m ""          everything (~2 min)
 addopts = "--capture=tee-sys --strict-markers -m 'not slow and not network'"
 markers = [
-    "slow: minutes-long; runs cosmic integration or trains a surrogate end to end",
+    "slow: >30s (measured); trains a surrogate or runs a 1D LnL scan",
     "network: requires internet (downloads mock observation data)",
 ]
 

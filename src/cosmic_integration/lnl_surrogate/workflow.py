@@ -40,7 +40,7 @@ class SurrogateWorkflowConfig:
     gp_truth_n_per_fraction: int = 200
     gp_truth_fractions: Sequence[float] = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4)
 
-    scaler_soft_clipping: bool = True
+    scaler_soft_clipping: bool = False
     scaler_clip_factor: float = 3.0
     scaler_lower_clip_percentile: float | None | str = "auto"
 
@@ -116,13 +116,19 @@ def _resolve_lower_clip(
     if isinstance(lower_clip_percentile, str):
         if lower_clip_percentile.lower() != "auto":
             raise ValueError(f"Unknown scaler_lower_clip_percentile string: {lower_clip_percentile}")
-        try:
-            n_events = int(lnl_computer.observation.population_weights.shape[0])
-        except Exception:
-            n_events = 0
-
-        min_delta = max(2.0e4, 200.0 * float(max(n_events, 1)))
-        max_delta = max(2.0e5, 900.0 * float(max(n_events, 1)))
+        # The posterior lives within Delta lnL ~ O(1) of the best point, so the
+        # GP only needs to resolve the likelihood over a few tens of lnL units.
+        # Everything below that is equally irrelevant and should be clipped hard.
+        #
+        # These deltas used to scale with the number of observed events
+        # (200-900 x n_events), which produced clip values of ~10^5-10^6 lnL.
+        # The transform then spent >80% of its dynamic range on points
+        # astronomically far from the peak: 64-90% of training points saturated
+        # at the clip, the GP fitted its lengthscales to that plateau, and the
+        # acquisition function was left with no usable uncertainty near the
+        # posterior. Keep these O(10-100), independent of the catalogue size.
+        min_delta = 20.0
+        max_delta = 50.0
         lower_clip_value = suggest_lower_clip_value(
             initial_lnls,
             best_fraction=0.05,
@@ -184,7 +190,7 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         lower_clip_percentile=lower_clip_percentile,
         lower_clip_value=lower_clip_value,
         focus_fraction=0.05,
-        max_scale=10.0,
+        max_scale=5.0,
     )
 
     scaler = neg_lnl_computer.scaler

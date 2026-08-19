@@ -9,7 +9,6 @@ from cosmic_integration.lnl_computer import LnLComputer
 from cosmic_integration.observation import load_observation
 
 
-@pytest.mark.slow
 @pytest.mark.network
 def test_lnl(test_compas_h5, observation_file, outdir):
     np.random.seed(42)  # For reproducibility

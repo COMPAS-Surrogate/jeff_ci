@@ -40,33 +40,27 @@ def _compute_iteration_index(walkers: np.ndarray) -> np.ndarray:
 
 
 def _read_chain(chain_path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, int]:
-    data = np.genfromtxt(
-        chain_path,
-        names=True,
-        delimiter="\t",
-        dtype=None,
-        encoding=None,
-        autostrip=True,
-    )
-    if data.size == 0:
-        raise ValueError(f"No rows found in chain file: {chain_path}")
+    """Load NUTS posterior samples written by :mod:`.lnl_surrogate.nuts_sampler`.
 
-    if "walker" not in data.dtype.names:
-        raise ValueError(f"Chain file is missing required 'walker' column: {chain_path}")
+    The old emcee ``chain.dat`` had a per-walker layout; NUTS writes a flat
+    ``(n_samples, n_params)`` array. We report a single "walker" so the rest of
+    the diagnostics, which only need points, keep working.
+    """
+    points = np.load(chain_path)
+    points = np.asarray(points, dtype=float)
+    if points.ndim != 2 or points.shape[1] < len(PARAMETERS):
+        raise ValueError(
+            f"Expected an (n_samples, {len(PARAMETERS)}) array in {chain_path}, "
+            f"got shape {points.shape}."
+        )
+    points = points[:, : len(PARAMETERS)]
+    if points.shape[0] == 0:
+        raise ValueError(f"No samples found in {chain_path}")
 
-    walkers = np.asarray(data["walker"], dtype=int).reshape(-1)
-    points = np.vstack([np.asarray(data[name], dtype=float) for name in PARAMETERS]).T
-
-    if "log_l" in data.dtype.names:
-        surrogate_logl = np.asarray(data["log_l"], dtype=float).reshape(-1)
-    else:
-        surrogate_logl = np.full(points.shape[0], np.nan, dtype=float)
-
-    unique_walkers = np.unique(walkers)
-    n_walkers = int(unique_walkers.size)
-    it = _compute_iteration_index(walkers)
-    n_steps = int(np.max(it)) + 1 if it.size else 0
-    return points, walkers, surrogate_logl, n_walkers, n_steps
+    n_samples = int(points.shape[0])
+    walkers = np.zeros(n_samples, dtype=int)
+    surrogate_logl = np.full(n_samples, np.nan, dtype=float)
+    return points, walkers, surrogate_logl, 1, n_samples
 
 
 def _parse_float_list(values: str) -> list[float]:
@@ -84,7 +78,7 @@ def _infer_paths_from_analysis_dir(analysis_dir: Path) -> tuple[str, str, str, s
     Expected layout:
       analysis_dir/
         gp_model/models/round_*/
-        MCMC/emcee_lnl_surrogate/chain.dat
+        MCMC/posterior_samples.npy
       analysis_dir/../mock_observation.h5
       analysis_dir/../../../h5out_5M.h5
     """
@@ -96,15 +90,14 @@ def _infer_paths_from_analysis_dir(analysis_dir: Path) -> tuple[str, str, str, s
     observation_file = analysis_dir.parent / "mock_observation.h5"
     model_dir = analysis_dir / "gp_model" / "models"
 
-    chain_candidates = [
-        analysis_dir / "MCMC" / "emcee_lnl_surrogate" / "chain.dat",
-    ]
+    chain_candidates = [analysis_dir / "MCMC" / "posterior_samples.npy"]
     if not chain_candidates[0].exists():
-        # Fallback: pick the first emcee_* chain we can find.
-        chain_candidates = list(analysis_dir.glob("MCMC/emcee_*/chain.dat"))
+        chain_candidates = list(analysis_dir.glob("MCMC/**/posterior_samples.npy"))
 
     if not chain_candidates:
-        raise FileNotFoundError(f"Could not find chain.dat under {analysis_dir}/MCMC/")
+        raise FileNotFoundError(
+            f"Could not find posterior_samples.npy under {analysis_dir}/MCMC/"
+        )
     chain_path = chain_candidates[0]
 
     # Walk up to the simulation_study directory (outputs/noise-or-no_noise/dur_*/analysis -> simulation_study).

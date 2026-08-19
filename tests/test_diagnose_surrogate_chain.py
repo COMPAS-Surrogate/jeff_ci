@@ -5,20 +5,16 @@ import pytest
 def test_run_chain_diagnostics_respects_burnin(tmp_path, monkeypatch):
     from cosmic_integration.cli_tools import diagnose_surrogate_chain as dsc
 
-    # Create a tiny synthetic chain file with 2 walkers and 5 iterations each.
-    chain_path = tmp_path / "chain.dat"
-    header = "walker\talpha\tsigma\tsfr_a\tsfr_d\tlog_l\tlog_p\n"
-    rows = []
-    for step in range(5):
-        for walker in range(2):
-            alpha = -0.1 * (step + 1) + 0.01 * walker
-            sigma = 0.2 + 0.01 * step
-            sfr_a = 0.01 + 0.001 * walker
-            sfr_d = 4.0 + 0.1 * step
-            log_l = 0.0
-            log_p = 0.0
-            rows.append(f"{walker}\t{alpha}\t{sigma}\t{sfr_a}\t{sfr_d}\t{log_l}\t{log_p}\n")
-    chain_path.write_text(header + "".join(rows), encoding="utf-8")
+    # NUTS writes a flat (n_samples, n_params) array of posterior samples.
+    chain_path = tmp_path / "posterior_samples.npy"
+    samples = np.array(
+        [
+            [-0.1 * (i + 1), 0.2 + 0.01 * i, 0.01 + 0.0001 * i, 4.0 + 0.1 * i]
+            for i in range(10)
+        ],
+        dtype=float,
+    )
+    np.save(chain_path, samples)
 
     class DummyLnLComputer:
         def __call__(self, alpha, sigma, sfr_a, sfr_d):
@@ -65,8 +61,8 @@ def test_run_chain_diagnostics_respects_burnin(tmp_path, monkeypatch):
     )
 
     assert summary["n_chain_total"] == 10
-    # burnin=2 leaves 3 iterations per walker -> 6 rows
-    assert summary["n_chain_after_filter"] == 6
-    assert summary["n_evaluated"] == 6
+    # NUTS samples are a single flat chain: burnin=2 drops the first 2 samples
+    assert summary["n_chain_after_filter"] == 8
+    assert summary["n_evaluated"] == 8
     beta_payload = summary["betas"]["0"]
     assert beta_payload["all"]["rmse"] == pytest.approx(0.0)
