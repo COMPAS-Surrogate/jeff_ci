@@ -298,8 +298,6 @@ class COMPAS:
         self.sysSeeds             = None
         self.zamsST1              = None
         self.zamsST2              = None
-        self.zamsMass1            = None
-        self.zamsMass2            = None
         self.zamsZ                = None
 
         self.dcoSeeds             = None
@@ -369,8 +367,6 @@ class COMPAS:
             self.nSystems  = len(self.sysSeeds)
             self.zamsST1   = sys['Stellar_Type@ZAMS(1)'][...]
             self.zamsST2   = sys['Stellar_Type@ZAMS(2)'][...]
-            self.zamsMass1 = sys['Mass@ZAMS(1)'][...]
-            self.zamsMass2 = sys['Mass@ZAMS(2)'][...]
             self.zamsZ     = sys['Metallicity@ZAMS(1)'][...]
 
             # CHE info may not be available - just disable CHE DCO types if not
@@ -533,6 +529,11 @@ class COMPAS:
         self.mergesInHubbleTime   = self.mergesInHubbleTime[self.DCOmask]
 
         self.Zsystems             = self.zamsZ[np.isin(self.sysSeeds, self.dcoSeeds)]
+
+        # FindDetectionRate only needs the ZAMS metallicity range, and recomputing
+        # min/max over every system on each likelihood evaluation is wasted work.
+        self.zamsZmin             = float(np.min(self.zamsZ))
+        self.zamsZmax             = float(np.max(self.zamsZ))
         self.delayTime            = np.add(self.formationTime, self.coalescenceTime)
 
         self.massEvolvedPerBinary = self.CalculateStarFormingMassPerBinary(p_Samples        = 20000000, 
@@ -540,6 +541,14 @@ class COMPAS:
                                                                            p_m1Maximum      = self.m1Maximum, 
                                                                            p_m2Minimum      = self.m2Minimum, 
                                                                            p_BinaryFraction = self.binaryFraction)
+
+        # The per-system (BSE_System_Parameters) and common-envelope arrays are only
+        # needed by SetDCOmasks and the lines above; they scale with nSystems, which is
+        # far larger than the DCO count. Release them so they don't sit in memory for
+        # the whole run of detection-rate evaluations.
+        self.sysSeeds = self.zamsST1 = self.zamsST2 = self.zamsZ = None
+        self.CHonMS1 = self.CHonMS2 = None
+        self.ceeSeeds = self.immediateRLOF = self.optimisticCE = None
 
 
     """
@@ -841,7 +850,6 @@ class CosmicIntegration:
         # initalise rates to zero
         nRedshifts    = len(p_Redshifts)
         redshiftStep  = p_Redshifts[1] - p_Redshifts[0]
-        formationRate = np.zeros(shape=(p_nBinaries, nRedshifts))
         mergerRate    = np.zeros(shape=(p_nBinaries, nRedshifts))
 
         # interpolate times and redshifts for conversion
@@ -850,12 +858,14 @@ class CosmicIntegration:
         # make note of the first time at which star formation occured
         ageFirstSFR = np.min(p_Times)
 
+        # calculate formation rate (see Neijssel+19 Section 4) - note this uses p_dPdlogZ for *closest*
+        # metallicity. Each binary depends only on its own metallicity bin, so this is done for all
+        # binaries at once rather than inside the merger-rate loop below.
+        metallicityIndex = np.digitize(p_COMPAS_Z[:p_nBinaries], p_Z)
+        formationRate = p_nFormed * p_dPdlogZ[:, metallicityIndex].T / p_pDrawZ
+
         # go through each binary in the COMPAS data
         for i in range(p_nBinaries):
-            # calculate formation rate (see Neijssel+19 Section 4) - note this uses p_dPdlogZ for *closest* metallicity
-
-            formationRate[i, :] = p_nFormed * p_dPdlogZ[:, np.digitize(p_COMPAS_Z[i], p_Z)] / p_pDrawZ
-
             # calculate the time at which the binary formed if it merges at this redshift
             formationTime = p_Times - p_COMPASdelayTimes[i]
 
@@ -1010,7 +1020,7 @@ class CosmicIntegration:
         nFormed = sfr / (self.compas.massEvolvedPerBinary * self.compas.nSystems)
 
         # work out the metallicity distribution at each redshift and probability of drawing each metallicity in COMPAS
-        dPdlogZ, Z, pDrawZ = self.FindZdistribution(self.redshifts, np.log(np.min(self.compas.zamsZ)), np.log(np.max(self.compas.zamsZ)), p_Z0 = p_Z0, p_Alpha = p_Alpha, p_Sigma = p_Sigma, p_StepLogZ = p_StepLogZ)
+        dPdlogZ, Z, pDrawZ = self.FindZdistribution(self.redshifts, np.log(self.compas.zamsZmin), np.log(self.compas.zamsZmax), p_Z0 = p_Z0, p_Alpha = p_Alpha, p_Sigma = p_Sigma, p_StepLogZ = p_StepLogZ)
 
         # calculate the formation and merger rates using what we computed above
         formationRate, mergerRate = self.FindFormationAndMergerRates(nBinaries, self.redshifts, self.times, nFormed, dPdlogZ, Z, pDrawZ, self.compas.Zsystems, self.compas.delayTime)
@@ -1026,7 +1036,17 @@ class CosmicIntegration:
 
 
     @classmethod
-    def from_compas_h5(cls, inputPath:str, inputName:str):
+    def from_compas_h5(cls, inputPath:str, inputName:str, randomSeed:int = 0):
+        """Build an integrator from a COMPAS HDF5 file.
+
+        Construction draws Monte-Carlo samples (SNR thetas, star-forming mass per
+        binary), so the detection rates - and every likelihood derived from them -
+        depend on the RNG state. Seed here so the library path is reproducible;
+        previously only the CLI in main.py seeded, leaving direct library use to
+        vary run to run. Pass randomSeed=None to keep the caller's RNG state.
+        """
+        if randomSeed is not None:
+            np.random.seed(randomSeed)
 
         SE = SelectionEffects(p_SNRfilePath=SNR_NOISE_FILE_PATH,
                               p_SNRfileName=SNR_NOISE_FILE_NAME,
