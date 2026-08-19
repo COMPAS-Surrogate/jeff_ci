@@ -5,6 +5,11 @@ from cosmic_integration.lnl_surrogate.run_sampler import sample_lnl_surrogate
 from cosmic_integration.observation import load_observation
 import pytest
 
+FAST_TESTS = os.getenv("COSMIC_INTEGRATION_FAST_TESTS", "1").lower() not in {"0", "false", "no"}
+
+TRAIN_TOTAL_STEPS = 10 if FAST_TESTS else 300
+TRAIN_STEPS_PER_ROUND = 3
+MCMC_ITERATIONS = 200 if FAST_TESTS else 3000
 
 @pytest.mark.slow
 @pytest.mark.network
@@ -29,8 +34,8 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
         compas_h5=test_compas_h5,
         outdir=outdir,
         initial_points=4,
-        total_steps=300,
-        steps_per_round=10,
+        total_steps=TRAIN_TOTAL_STEPS,
+        steps_per_round=TRAIN_STEPS_PER_ROUND,
         truth=obs.params
     )
 
@@ -45,7 +50,7 @@ def test_lnl_surrogate(outdir, test_compas_h5, observation_file):
         outdir=f"{outdir}/MCMC",
         verbose=True,
         truths=obs.param_dict,
-        mcmc_kwargs={"nwalkers": 10, "iterations": 3000}
+        mcmc_kwargs={"nwalkers": 10, "iterations": MCMC_ITERATIONS}
     )
     assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_result.json"), "MCMC samples were not saved."
     assert os.path.exists(f"{outdir}/MCMC/lnl_surrogate_corner.png"), "Corner plot was not saved."

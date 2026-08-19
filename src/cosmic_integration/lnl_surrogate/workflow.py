@@ -201,6 +201,12 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         config=JaxGPConfig(),
     )
 
+    # Persist the scaler up front: per-round postprocessing loads it back via
+    # LnLSurrogate.load while BO is still running. The scaler is fitted from the
+    # initial dataset and does not change during the loop.
+    model_dir.mkdir(parents=True, exist_ok=True)
+    scaler.save(str(model_dir))
+
     rounds_root = outdir / "rounds"
     rounds_root.mkdir(parents=True, exist_ok=True)
     processed_rounds: list[int] = []
@@ -294,9 +300,6 @@ def run_surrogate_workflow(config: SurrogateWorkflowConfig) -> dict:
         steps_per_round=int(config.steps_per_round),
         round_callback=round_callback,
     )
-
-    model_dir.mkdir(parents=True, exist_ok=True)
-    scaler.save(str(model_dir))
 
     if int(config.postprocess_every) > 0 and not config.postprocess_during_bo:
         selected = list(range(0, num_rounds, int(config.postprocess_every)))
